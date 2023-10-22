@@ -167,12 +167,14 @@ public class AllocateMappedFileService extends ServiceThread {
                 if (messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                     try {
                         mappedFile = ServiceLoader.load(MappedFile.class).iterator().next();
+                        // 初始化mappedFile会向TransientStorePool"借"一个writeBuffer
                         mappedFile.init(req.getFilePath(), req.getFileSize(), messageStore.getTransientStorePool());
                     } catch (RuntimeException e) {
                         log.warn("Use default implementation.");
                         mappedFile = new MappedFile(req.getFilePath(), req.getFileSize(), messageStore.getTransientStorePool());
                     }
                 } else {
+                    // 创建MappedFile，没有writeBuffer
                     mappedFile = new MappedFile(req.getFilePath(), req.getFileSize());
                 }
 

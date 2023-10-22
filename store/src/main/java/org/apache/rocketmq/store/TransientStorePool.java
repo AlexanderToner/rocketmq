@@ -31,9 +31,13 @@ import sun.nio.ch.DirectBuffer;
 public class TransientStorePool {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    // 存储池大小，默认是5
     private final int poolSize;
+    // CommitLog MappedFile文件大小，默认1GB
     private final int fileSize;
+    // 默认存5个ByteBuffer
     private final Deque<ByteBuffer> availableBuffers;
+    // 消息存储配置
     private final MessageStoreConfig storeConfig;
 
     public TransientStorePool(final MessageStoreConfig storeConfig) {
@@ -45,15 +49,19 @@ public class TransientStorePool {
 
     /**
      * It's a heavy init method.
+     * TransientStorePool初始化
      */
     public void init() {
+        // 默认是5
         for (int i = 0; i < poolSize; i++) {
+            // 分配1GB的直接内存
             ByteBuffer byteBuffer = ByteBuffer.allocateDirect(fileSize);
 
             final long address = ((DirectBuffer) byteBuffer).address();
             Pointer pointer = new Pointer(address);
             LibC.INSTANCE.mlock(pointer, new NativeLong(fileSize));
 
+            // 生成的缓存保存到队列中
             availableBuffers.offer(byteBuffer);
         }
     }
@@ -66,13 +74,18 @@ public class TransientStorePool {
         }
     }
 
+    // 归还缓冲
     public void returnBuffer(ByteBuffer byteBuffer) {
+        // 修改position和limit，"清空"缓冲
         byteBuffer.position(0);
         byteBuffer.limit(fileSize);
+        // 缓冲入队
         this.availableBuffers.offerFirst(byteBuffer);
     }
 
+    // 向TransientStorePool借缓冲
     public ByteBuffer borrowBuffer() {
+        // 缓冲出队
         ByteBuffer buffer = availableBuffers.pollFirst();
         if (availableBuffers.size() < poolSize * 0.4) {
             log.warn("TransientStorePool only remain {} sheets.", availableBuffers.size());

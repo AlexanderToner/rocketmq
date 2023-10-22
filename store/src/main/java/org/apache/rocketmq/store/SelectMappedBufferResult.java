@@ -20,12 +20,16 @@ import java.nio.ByteBuffer;
 
 public class SelectMappedBufferResult {
 
+    // mappedFile文件起始偏移量+position
     private final long startOffset;
 
+    // reputFromOffset开始的缓冲
     private final ByteBuffer byteBuffer;
 
+    // 消息size
     private int size;
 
+    // commitLog的MappedFile
     private MappedFile mappedFile;
 
     public SelectMappedBufferResult(long startOffset, ByteBuffer byteBuffer, int size, MappedFile mappedFile) {

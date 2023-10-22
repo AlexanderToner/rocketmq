@@ -156,10 +156,11 @@ public class MappedFileQueue {
     }
 
     public boolean doLoad(List<File> files) {
-        // ascending order
+        // 按照文件名称排序
         files.sort(Comparator.comparing(File::getName));
 
         for (File file : files) {
+            // 如果commitLog文件大小与mappedFileSize不一致，则说明配置被改了，或者CommitLog文件被修改
             if (file.length() != this.mappedFileSize) {
                 log.warn(file + "\t" + file.length()
                         + " length not matched message store config value, please check it manually");
@@ -167,6 +168,7 @@ public class MappedFileQueue {
             }
 
             try {
+                // 创建MappedFile
                 MappedFile mappedFile = new MappedFile(file.getPath(), mappedFileSize);
 
                 mappedFile.setWrotePosition(this.mappedFileSize);
@@ -351,27 +353,34 @@ public class MappedFileQueue {
         final int deleteFilesInterval,
         final long intervalForcibly,
         final boolean cleanImmediately) {
+        // 复制一份当前mappedFile
         Object[] mfs = this.copyMappedFiles(0);
 
         if (null == mfs)
             return 0;
 
+        // 会保留最后一个MappedFile
         int mfsLength = mfs.length - 1;
         int deleteCount = 0;
         List<MappedFile> files = new ArrayList<MappedFile>();
         if (null != mfs) {
             for (int i = 0; i < mfsLength; i++) {
                 MappedFile mappedFile = (MappedFile) mfs[i];
+                // 最后修改时间+过期时间
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
+                // 如果commitLog所在磁盘分区总容量超过85%，触发立即删除，或者超过了72小时的mappedFile
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
+                    // 删除mappedFile
                     if (mappedFile.destroy(intervalForcibly)) {
                         files.add(mappedFile);
                         deleteCount++;
 
+                        // 一次最多删除10个mappedFile
                         if (files.size() >= DELETE_FILES_BATCH_MAX) {
                             break;
                         }
 
+                        // 删除文件时间间隔，默认100ms
                         if (deleteFilesInterval > 0 && (i + 1) < mfsLength) {
                             try {
                                 Thread.sleep(deleteFilesInterval);
@@ -388,12 +397,14 @@ public class MappedFileQueue {
             }
         }
 
+        // 从MappedFileQueue的mappedFiles中删除这个mappedFile
         deleteExpiredFile(files);
 
         return deleteCount;
     }
 
     public int deleteExpiredFileByOffset(long offset, int unitSize) {
+        // 复制一份mappedFiles
         Object[] mfs = this.copyMappedFiles(0);
 
         List<MappedFile> files = new ArrayList<MappedFile>();
@@ -405,10 +416,13 @@ public class MappedFileQueue {
             for (int i = 0; i < mfsLength; i++) {
                 boolean destroy;
                 MappedFile mappedFile = (MappedFile) mfs[i];
+                // 取consumeQueue最后一条消息Buffer切片
                 SelectMappedBufferResult result = mappedFile.selectMappedBuffer(this.mappedFileSize - unitSize);
                 if (result != null) {
+                    // consumeQueue最后一个存储单元消息在commitLog的偏移量
                     long maxOffsetInLogicQueue = result.getByteBuffer().getLong();
                     result.release();
+                    // 如果consumeQueue最后一条消息已经小于commitLog的最小offset，则说明要删除了
                     destroy = maxOffsetInLogicQueue < offset;
                     if (destroy) {
                         log.info("physic min offset " + offset + ", logics in current mappedFile max offset "
@@ -422,6 +436,7 @@ public class MappedFileQueue {
                     break;
                 }
 
+                // 删除ConsumeQueue的MappedFile
                 if (destroy && mappedFile.destroy(1000 * 60)) {
                     files.add(mappedFile);
                     deleteCount++;
@@ -431,6 +446,7 @@ public class MappedFileQueue {
             }
         }
 
+        // 删除MappedFileQueue的mappedFiles列表中已经删除的MappedFile
         deleteExpiredFile(files);
 
         return deleteCount;

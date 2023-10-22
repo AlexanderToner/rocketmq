@@ -56,10 +56,13 @@ public class MQFaultStrategy {
     }
 
     public MessageQueue selectOneMessageQueue(final TopicPublishInfo tpInfo, final String lastBrokerName) {
+        // 是否打开发送延时故障启动机制 默认是关闭的
         if (this.sendLatencyFaultEnable) {
             try {
+                // 获取MessageQueue选择索引，并+1
                 int index = tpInfo.getSendWhichQueue().incrementAndGet();
                 for (int i = 0; i < tpInfo.getMessageQueueList().size(); i++) {
+                    // index与messageQueueSize取余，如果可用，则返回，否则选择下一个MessageQueue
                     int pos = Math.abs(index++) % tpInfo.getMessageQueueList().size();
                     if (pos < 0)
                         pos = 0;
@@ -68,7 +71,9 @@ public class MQFaultStrategy {
                         return mq;
                 }
 
+                // 随机选择一个broker
                 final String notBestBroker = latencyFaultTolerance.pickOneAtLeast();
+                // 轮询选择一个写队列
                 int writeQueueNums = tpInfo.getQueueIdByBroker(notBestBroker);
                 if (writeQueueNums > 0) {
                     final MessageQueue mq = tpInfo.selectOneMessageQueue();
@@ -87,12 +92,16 @@ public class MQFaultStrategy {
             return tpInfo.selectOneMessageQueue();
         }
 
+        // 轮询选择MessageQueue
         return tpInfo.selectOneMessageQueue(lastBrokerName);
     }
 
     public void updateFaultItem(final String brokerName, final long currentLatency, boolean isolation) {
+        // 打开发送延迟故障机制
         if (this.sendLatencyFaultEnable) {
+            // 如果是个隔离异常则标记执行持续时长为30秒，并根据执行时长计算broker不可用时长
             long duration = computeNotAvailableDuration(isolation ? 30000 : currentLatency);
+            // 记录broker不可用时长信息
             this.latencyFaultTolerance.updateFaultItem(brokerName, currentLatency, duration);
         }
     }

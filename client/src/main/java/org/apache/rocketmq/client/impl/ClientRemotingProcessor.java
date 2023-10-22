@@ -135,11 +135,13 @@ public class ClientRemotingProcessor extends AsyncNettyRequestProcessor implemen
     public RemotingCommand notifyConsumerIdsChanged(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         try {
+            // 解析ConsumerId变更请求头
             final NotifyConsumerIdsChangedRequestHeader requestHeader =
                 (NotifyConsumerIdsChangedRequestHeader) request.decodeCommandCustomHeader(NotifyConsumerIdsChangedRequestHeader.class);
             log.info("receive broker's notification[{}], the consumer group: {} changed, rebalance immediately",
                 RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
                 requestHeader.getConsumerGroup());
+            // 立刻唤醒rebalance
             this.mqClientFactory.rebalanceImmediately();
         } catch (Exception e) {
             log.error("notifyConsumerIdsChanged exception", RemotingHelper.exceptionSimpleDesc(e));

@@ -54,7 +54,9 @@ public class NamesrvStartup {
     public static NamesrvController main0(String[] args) {
 
         try {
+            // 创建一个NamesrvController类
             NamesrvController controller = createNamesrvController(args);
+            // 启动NamesrvController
             start(controller);
             String tip = "The Name Server boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
             log.info(tip);
@@ -79,9 +81,12 @@ public class NamesrvStartup {
             return null;
         }
 
+        // 创建配置
         final NamesrvConfig namesrvConfig = new NamesrvConfig();
         final NettyServerConfig nettyServerConfig = new NettyServerConfig();
+        // 默认端口9876
         nettyServerConfig.setListenPort(9876);
+        // 解析命令
         if (commandLine.hasOption('c')) {
             String file = commandLine.getOptionValue('c');
             if (file != null) {
@@ -98,7 +103,9 @@ public class NamesrvStartup {
             }
         }
 
+        //解析命令 -p 打印配置项
         if (commandLine.hasOption('p')) {
+            // 打印所有配置项
             InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_CONSOLE_NAME);
             MixAll.printObjectProperties(console, namesrvConfig);
             MixAll.printObjectProperties(console, nettyServerConfig);
@@ -107,6 +114,7 @@ public class NamesrvStartup {
 
         MixAll.properties2Object(ServerUtil.commandLine2Properties(commandLine), namesrvConfig);
 
+        // 必须要有ROCKETMQ_HOME环境变量
         if (null == namesrvConfig.getRocketmqHome()) {
             System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation%n", MixAll.ROCKETMQ_HOME_ENV);
             System.exit(-2);
@@ -122,7 +130,7 @@ public class NamesrvStartup {
 
         MixAll.printObjectProperties(log, namesrvConfig);
         MixAll.printObjectProperties(log, nettyServerConfig);
-
+        // 创建NamesrvController
         final NamesrvController controller = new NamesrvController(namesrvConfig, nettyServerConfig);
 
         // remember all configs to prevent discard
@@ -137,17 +145,18 @@ public class NamesrvStartup {
             throw new IllegalArgumentException("NamesrvController is null");
         }
 
+        // 初始化失败，则关闭shutdown namesrv
         boolean initResult = controller.initialize();
+        // 初始化失败，则退出
         if (!initResult) {
             controller.shutdown();
             System.exit(-3);
         }
 
-        Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, (Callable<Void>) () -> {
-            controller.shutdown();
-            return null;
-        }));
+        // 添加jvm关闭钩子方法
+        Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, (Callable<Void>) () -> { controller.shutdown(); return null; }));
 
+        // 启动controller
         controller.start();
 
         return controller;

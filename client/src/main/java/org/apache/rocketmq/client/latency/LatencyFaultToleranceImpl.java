@@ -25,24 +25,39 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.rocketmq.client.common.ThreadLocalIndex;
 
 public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> {
-    private final ConcurrentHashMap<String, FaultItem> faultItemTable = new ConcurrentHashMap<String, FaultItem>(16);
+    // key是brokerName，value是FaultItem(记录延迟时间)
+    private final ConcurrentHashMap<String/*brokerName*/, FaultItem> faultItemTable = new ConcurrentHashMap<String, FaultItem>(16);
 
     private final ThreadLocalIndex whichItemWorst = new ThreadLocalIndex();
 
+    /**
+     * 从延迟故障map(faultItemTable)中获取获取延迟故障对象
+     * 如果延迟故障对象不存在，则创建一个延迟故障对象，并put到map中
+     * 如果延迟故障对象存在，则更新当前broker的延迟故障对象
+     * @param name
+     * @param currentLatency
+     * @param notAvailableDuration
+     */
     @Override
-    public void updateFaultItem(final String name, final long currentLatency, final long notAvailableDuration) {
+    public void updateFaultItem(final String name/*brokerName*/, final long currentLatency/*当前延迟*/, final long notAvailableDuration/*不可用周期*/) {
+        // 查看brokername是否被标记过为不可用
         FaultItem old = this.faultItemTable.get(name);
+        // 如果为空，则说明第一次被标记
         if (null == old) {
             final FaultItem faultItem = new FaultItem(name);
+            // 记录本次耗时
             faultItem.setCurrentLatency(currentLatency);
+            // 当前时间+不可用时间=截止时间
             faultItem.setStartTimestamp(System.currentTimeMillis() + notAvailableDuration);
 
             old = this.faultItemTable.putIfAbsent(name, faultItem);
+            // 如果old不为空，则说明原来已经有map中已经有值了，因此重新标记
             if (old != null) {
                 old.setCurrentLatency(currentLatency);
                 old.setStartTimestamp(System.currentTimeMillis() + notAvailableDuration);
             }
         } else {
+            // 如果不为空，则重新标记
             old.setCurrentLatency(currentLatency);
             old.setStartTimestamp(System.currentTimeMillis() + notAvailableDuration);
         }
@@ -62,6 +77,14 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         this.faultItemTable.remove(name);
     }
 
+    /**
+     * 随机选择一个延迟时间排在前50%的broker
+     * 步骤：
+     * 将broker延迟故障map中的所有FaultItem添加到LinkedList中
+     * 按照延迟时间排序
+     * 随机取LinkedList中index是LinkedList的size在前一半的broker
+     * @return
+     */
     @Override
     public String pickOneAtLeast() {
         final Enumeration<FaultItem> elements = this.faultItemTable.elements();
@@ -71,11 +94,13 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
             tmpList.add(faultItem);
         }
         if (!tmpList.isEmpty()) {
+            // 按照延迟时间排序
             Collections.sort(tmpList);
             final int half = tmpList.size() / 2;
             if (half <= 0) {
                 return tmpList.get(0).getName();
             } else {
+                // 随机选择延迟时间排前50%的broker
                 final int i = this.whichItemWorst.incrementAndGet() % half;
                 return tmpList.get(i).getName();
             }
@@ -91,9 +116,15 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
             '}';
     }
 
+    /**
+     * broker延迟信息对象
+     */
     class FaultItem implements Comparable<FaultItem> {
+        // brokerName
         private final String name;
+        // 截至当前延迟
         private volatile long currentLatency;
+        // 开始时间戳
         private volatile long startTimestamp;
 
         public FaultItem(final String name) {

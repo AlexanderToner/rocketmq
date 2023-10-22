@@ -95,23 +95,47 @@ public class ConsumerManager {
         }
     }
 
+    /**
+     * 注册consumer
+     * - 从consumerTable获取ConsumerGroupInfo，如果不存在说明是第一个注册，则创建一个新的ConsumerGroupInfo并put到consumerTable中
+     * - 更新ConsumerGroupInfo中的Channel信息。在ConsumerGroupInfo中有一个维护着Channel与Client信息(主要是Channel与clientId的关系)的缓存表channelInfoTable
+     *      - channelInfoTable的更新逻辑是：
+     *          如果在channelInfoTable中不包含当前心跳包中的Channel，则说明当前Consumer是新加入的Consumer，场景就是我们如果扩容了Consumer，则扩容的Consumer向Broker发送心跳时，会更新channelInfoTable并返回true。
+     * - 更新consumerGroup的订阅信息。在ConsumerGroupInfo中有一个维护着当前consumerGroup订阅信息的缓存表subscriptionTable，它保存了每个ConsumerGroup订阅了哪些Topic，每个Topic要如何过滤消息。
+     *      - subscriptionTable的更新逻辑是：
+     *          1)向subscriptionTable添加心跳包中不存在的topic订阅信息，如果某个topic订阅信息在心跳包中存在，但是在subscriptionTable不存在，说明当前consumerGroup要订阅新的topic
+     *          2)删除subscriptionTable中在心跳包中不存在的topic订阅信息，如果某个topic订阅信息在心跳包中不存在，但是在subscriptionTable中存在，说明当前consumerGroup不订阅某个topic
+     * - 如果ConsumerGroupInfo中的Channel信息更新了或者consumerGroup的订阅信息更新了，则会通知当前consumerGroup下的所有client，给每个client发送一个NOTIFY_CONSUMER_IDS_CHANGED请求，告诉他们订阅信息发生变化
+     *
+     * @param group
+     * @param clientChannelInfo
+     * @param consumeType
+     * @param messageModel
+     * @param consumeFromWhere
+     * @param subList
+     * @param isNotifyConsumerIdsChangedEnable
+     * @return
+     */
     public boolean registerConsumer(final String group, final ClientChannelInfo clientChannelInfo,
         ConsumeType consumeType, MessageModel messageModel, ConsumeFromWhere consumeFromWhere,
         final Set<SubscriptionData> subList, boolean isNotifyConsumerIdsChangedEnable) {
 
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
+        // consumerGroupInfo是空，说明是第一个注册的Consumer，创建一个ConsumerGroupInfo
         if (null == consumerGroupInfo) {
             ConsumerGroupInfo tmp = new ConsumerGroupInfo(group, consumeType, messageModel, consumeFromWhere);
             ConsumerGroupInfo prev = this.consumerTable.putIfAbsent(group, tmp);
             consumerGroupInfo = prev != null ? prev : tmp;
         }
 
-        boolean r1 =
-            consumerGroupInfo.updateChannel(clientChannelInfo, consumeType, messageModel,
-                consumeFromWhere);
+        // 更新channel信息，这里维护了channel与clientId之间的关系
+        boolean r1 = consumerGroupInfo.updateChannel(clientChannelInfo, consumeType, messageModel, consumeFromWhere);
+        // consumer订阅信息是否更新(让Broker中的consumerGroup的订阅信息(topic，过滤subString)与心跳包中是否一致)
         boolean r2 = consumerGroupInfo.updateSubscription(subList);
 
+        // 订阅信息是否更新
         if (r1 || r2) {
+            // 通知所有consumer
             if (isNotifyConsumerIdsChangedEnable) {
                 this.consumerIdsChangeListener.handle(ConsumerGroupEvent.CHANGE, group, consumerGroupInfo.getAllChannel());
             }

@@ -27,9 +27,9 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
  */
 public interface MQAdmin {
     /**
-     * Creates an topic
-     *
-     * @param key accesskey
+     * Creates on topic
+     * 创建topic
+     * @param key accessKey
      * @param newTopic topic name
      * @param queueNum topic's queue number
      */
@@ -37,9 +37,9 @@ public interface MQAdmin {
         throws MQClientException;
 
     /**
-     * Creates an topic
-     *
-     * @param key accesskey
+     * Creates on topic
+     * 创建topic
+     * @param key accessKey
      * @param newTopic topic name
      * @param queueNum topic's queue number
      * @param topicSysFlag topic system flag
@@ -50,7 +50,7 @@ public interface MQAdmin {
     /**
      * Gets the message queue offset according to some time in milliseconds<br>
      * be cautious to call because of more IO overhead
-     *
+     * 根据某个时间（以毫秒为单位）获取消息队列偏移量
      * @param mq Instance of MessageQueue
      * @param timestamp from when in milliseconds.
      * @return offset
@@ -59,7 +59,7 @@ public interface MQAdmin {
 
     /**
      * Gets the max offset
-     *
+     * 获取最大offset
      * @param mq Instance of MessageQueue
      * @return the max offset
      */
@@ -67,7 +67,7 @@ public interface MQAdmin {
 
     /**
      * Gets the minimum offset
-     *
+     * 获取最小offset
      * @param mq Instance of MessageQueue
      * @return the minimum offset
      */
@@ -75,7 +75,7 @@ public interface MQAdmin {
 
     /**
      * Gets the earliest stored message time
-     *
+     * 获取最早存储消息的时间
      * @param mq Instance of MessageQueue
      * @return the time in microseconds
      */
@@ -83,7 +83,7 @@ public interface MQAdmin {
 
     /**
      * Query message according to message id
-     *
+     * 根据消息id查询消息
      * @param offsetMsgId message id
      * @return message
      */
@@ -92,7 +92,7 @@ public interface MQAdmin {
 
     /**
      * Query messages
-     *
+     * 查询消息
      * @param topic message topic
      * @param key message key index word
      * @param maxNum max message number
@@ -104,6 +104,7 @@ public interface MQAdmin {
         final long end) throws MQClientException, InterruptedException;
 
     /**
+     * 根据topic和消息id查询消息
      * @return The {@code MessageExt} of given msgId
      */
     MessageExt viewMessage(String topic,

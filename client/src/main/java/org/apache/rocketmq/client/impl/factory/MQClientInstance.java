@@ -285,7 +285,9 @@ public class MQClientInstance {
             @Override
             public void run() {
                 try {
+                    // 清除下线的broker
                     MQClientInstance.this.cleanOfflineBroker();
+                    // 发送心跳给Broker
                     MQClientInstance.this.sendHeartbeatToAllBrokerWithLock();
                 } catch (Exception e) {
                     log.error("ScheduledTask sendHeartbeatToAllBroker exception", e);
@@ -532,14 +534,17 @@ public class MQClientInstance {
         final HeartbeatData heartbeatData = this.prepareHeartbeatData();
         final boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
         final boolean consumerEmpty = heartbeatData.getConsumerDataSet().isEmpty();
+        // 如果producer&consumer都是空，则不需要发送心跳了
         if (producerEmpty && consumerEmpty) {
             log.warn("sending heartbeat, but no consumer and no producer. [{}]", this.clientId);
             return;
         }
 
+        // brokerAddrTable如果不空，说明从namesrv获取到Broker
         if (!this.brokerAddrTable.isEmpty()) {
             long times = this.sendHeartbeatTimesTotal.getAndIncrement();
             Iterator<Entry<String, HashMap<Long, String>>> it = this.brokerAddrTable.entrySet().iterator();
+            // 遍历所有broker
             while (it.hasNext()) {
                 Entry<String, HashMap<Long, String>> entry = it.next();
                 String brokerName = entry.getKey();
@@ -549,12 +554,14 @@ public class MQClientInstance {
                         Long id = entry1.getKey();
                         String addr = entry1.getValue();
                         if (addr != null) {
+                            // 如果当前client只是producer，则不需要向从节点发送心跳
                             if (consumerEmpty) {
                                 if (id != MixAll.MASTER_ID)
                                     continue;
                             }
 
                             try {
+                                // 向broker发送心跳
                                 int version = this.mQClientAPIImpl.sendHeartbeat(addr, heartbeatData, clientConfig.getMqClientApiTimeout());
                                 if (!this.brokerVersionTable.containsKey(brokerName)) {
                                     this.brokerVersionTable.put(brokerName, new HashMap<String, Integer>(4));

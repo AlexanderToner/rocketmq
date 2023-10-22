@@ -27,26 +27,34 @@ import org.apache.rocketmq.client.exception.MQClientException;
 public interface MQPushConsumer extends MQConsumer {
     /**
      * Start the consumer
+     * 启动Consumer
      */
     void start() throws MQClientException;
 
     /**
      * Shutdown the consumer
+     * 关闭Consumer
      */
     void shutdown();
 
     /**
      * Register the message listener
+     * 注册并发消息Listener
      */
     @Deprecated
     void registerMessageListener(MessageListener messageListener);
 
+    /**
+     * 注册顺序消息Listener,将会有序地接收消息。一个队列一个线程
+     * @param messageListener
+     */
     void registerMessageListener(final MessageListenerConcurrently messageListener);
 
     void registerMessageListener(final MessageListenerOrderly messageListener);
 
     /**
      * Subscribe some topic
+     * 订阅Topic
      *
      * @param subExpression subscription expression.it only support or operation such as "tag1 || tag2 || tag3" <br> if
      * null or * expression,meaning subscribe
@@ -88,6 +96,7 @@ public interface MQPushConsumer extends MQConsumer {
 
     /**
      * Unsubscribe consumption some topic
+     * 退订topic
      *
      * @param topic message topic
      */

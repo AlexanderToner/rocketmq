@@ -28,16 +28,23 @@ public class RebalanceService extends ServiceThread {
     private final InternalLogger log = ClientLogger.getLog();
     private final MQClientInstance mqClientFactory;
 
+    /**
+     * RebalanceService在MqClientInstance创建时创建
+     * @param mqClientFactory
+     */
     public RebalanceService(MQClientInstance mqClientFactory) {
         this.mqClientFactory = mqClientFactory;
     }
 
+    /**
+     * RebalanceService启动后每隔20秒调用一次MQClientInstance#doRabalance方法触发rebalance。
+     */
     @Override
     public void run() {
         log.info(this.getServiceName() + " service started");
 
         while (!this.isStopped()) {
-            this.waitForRunning(waitInterval);
+            this.waitForRunning(waitInterval/*默认20s*/);
             this.mqClientFactory.doRebalance();
         }
 

@@ -50,9 +50,13 @@ public class MappedFile extends ReferenceResource {
     private static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
 
     private static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
+    // 当前写文件位置，即数据被写入MappedFile的最新指针，可能存在ByteBuffer中，没有提交
     protected final AtomicInteger wrotePosition = new AtomicInteger(0);
+    // 数据被写入文件的最新指针(只是被写入文件映射，不一定被刷盘)
     protected final AtomicInteger committedPosition = new AtomicInteger(0);
+    // 刷盘位置，该指针之前的数据都持久化存储到磁盘中
     private final AtomicInteger flushedPosition = new AtomicInteger(0);
+    // 文件大小,默认是1042*1024*4(4GB)
     protected int fileSize;
     protected FileChannel fileChannel;
     /**
@@ -61,6 +65,7 @@ public class MappedFile extends ReferenceResource {
     protected ByteBuffer writeBuffer = null;
     protected TransientStorePool transientStorePool = null;
     private String fileName;
+    // 起始偏移量，MappedFile创建时从文件名中解析
     private long fileFromOffset;
     private File file;
     private MappedByteBuffer mappedByteBuffer;
@@ -214,12 +219,16 @@ public class MappedFile extends ReferenceResource {
         assert messageExt != null;
         assert cb != null;
 
+        // 获取当前写文件位置
         int currentPos = this.wrotePosition.get();
 
+        // 如果写文件位置小于文件size
         if (currentPos < this.fileSize) {
+            // 如果writeBuffer不空，则获取writeBuffer的浅拷贝，否则获取MappedFile的内存映射(MappedByteBuffer)的浅拷贝
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);
             AppendMessageResult result;
+            // 如果是单条消息
             if (messageExt instanceof MessageExtBrokerInner) {
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos,
                         (MessageExtBrokerInner) messageExt, putMessageContext);
@@ -229,6 +238,7 @@ public class MappedFile extends ReferenceResource {
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            // 更新当前写文件位置和消息保存时间戳
             this.wrotePosition.addAndGet(result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
             return result;
@@ -293,16 +303,20 @@ public class MappedFile extends ReferenceResource {
 
                 try {
                     //We only append data to fileChannel or mappedByteBuffer, never both.
+                    // 如果使用了堆外内存，那么通过fileChannel强制刷盘，这是异步堆外内存的逻辑
                     if (writeBuffer != null || this.fileChannel.position() != 0) {
                         this.fileChannel.force(false);
                     } else {
+                        // 如果没有使用堆外内存，那么通过fileChannel强制刷盘，这是同步或者异步刷盘走的逻辑
                         this.mappedByteBuffer.force();
                     }
                 } catch (Throwable e) {
                     log.error("Error occurred when force data to disk.", e);
                 }
 
+                // 设置刷盘位置为写入位置
                 this.flushedPosition.set(value);
+                // 减少对该MappedFile的引用次数
                 this.release();
             } else {
                 log.warn("in flush, hold failed, flush offset = " + this.flushedPosition.get());
@@ -336,9 +350,12 @@ public class MappedFile extends ReferenceResource {
     }
 
     protected void commit0() {
+        // 写指针
         int writePos = this.wrotePosition.get();
+        // 最后提交指针
         int lastCommittedPosition = this.committedPosition.get();
 
+        // byteBuffer的数据提交到FileChannel
         if (writePos - lastCommittedPosition > 0) {
             try {
                 ByteBuffer byteBuffer = writeBuffer.slice();

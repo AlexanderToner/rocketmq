@@ -54,6 +54,7 @@ public class BrokerStartup {
     public static InternalLogger log;
 
     public static void main(String[] args) {
+        // 读取配置文件，创建BrokerController并启动
         start(createBrokerController(args));
     }
 
@@ -86,11 +87,26 @@ public class BrokerStartup {
         }
     }
 
+    /**
+     * 创建BrokerController
+     *
+     * 1.创建配置类BrokerConfig、NettyServerConfig、NettyClientConfig和MessageStoreConfig
+     * 2.解析命令行中-c对应的broker.conf配置，并将配置设置到上面的配置类中
+     * 3.校验环境变量中的ROCKETMQ_HOME是否存在，校验namesrvAddr是否正确
+     * 4.设置haListenPort端口(remotingServer监听端口(10911)+1)，它用于Broker主从同步
+     * 5.通过上面4个配置创建BrokerController
+     * 6.调用BrokerController#initialize初始化
+     * 7.注册进程关闭的钩子函数
+     *
+     * @param args
+     * @return
+     */
     public static BrokerController createBrokerController(String[] args) {
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
 
         try {
             //PackageConflictDetect.detectFastjson();
+            // 如果启动命令不是mqbroker，则直接退出
             Options options = ServerUtil.buildCommandlineOptions(new Options());
             commandLine = ServerUtil.parseCmdLine("mqbroker", args, buildCommandlineOptions(options),
                 new PosixParser());
@@ -98,20 +114,28 @@ public class BrokerStartup {
                 System.exit(-1);
             }
 
+            // 创建broker的配置类，例如brokerClusterName，brokerName默认是本机hostname、brokerId
             final BrokerConfig brokerConfig = new BrokerConfig();
+            // NettyServer配置类，broker作为服务端的配置类
             final NettyServerConfig nettyServerConfig = new NettyServerConfig();
+            // NettyClient配置类，broker作为客户端的配置类
             final NettyClientConfig nettyClientConfig = new NettyClientConfig();
 
-            nettyClientConfig.setUseTLS(Boolean.parseBoolean(System.getProperty(TLS_ENABLE,
-                String.valueOf(TlsSystemConfig.tlsMode == TlsMode.ENFORCING))));
+            // tls相关配置类
+            nettyClientConfig.setUseTLS(Boolean.parseBoolean(System.getProperty(TLS_ENABLE, String.valueOf(TlsSystemConfig.tlsMode == TlsMode.ENFORCING))));
+            // nettyServerConfig监听端口
             nettyServerConfig.setListenPort(10911);
+            // 消息存储配置
             final MessageStoreConfig messageStoreConfig = new MessageStoreConfig();
 
+            // 如果是Master节点，则消息占用内存百分比为40(默认)
+            // 如果是Slave节点，则消息占用内存百分比为30
             if (BrokerRole.SLAVE == messageStoreConfig.getBrokerRole()) {
                 int ratio = messageStoreConfig.getAccessMessageInMemoryMaxRatio() - 10;
                 messageStoreConfig.setAccessMessageInMemoryMaxRatio(ratio);
             }
 
+            // 读取命令行'-c' 参数中的配置文件，并且设置到brokerConfig,nettyServerConfig,nettyClientConfig,messageStoreConfig
             if (commandLine.hasOption('c')) {
                 String file = commandLine.getOptionValue('c');
                 if (file != null) {
@@ -133,11 +157,13 @@ public class BrokerStartup {
 
             MixAll.properties2Object(ServerUtil.commandLine2Properties(commandLine), brokerConfig);
 
+            // 校验环境变量中是否设置ROCKETMQ_HOME
             if (null == brokerConfig.getRocketmqHome()) {
                 System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation", MixAll.ROCKETMQ_HOME_ENV);
                 System.exit(-2);
             }
 
+            // 校验nameserAddr地址
             String namesrvAddr = brokerConfig.getNamesrvAddr();
             if (null != namesrvAddr) {
                 try {
@@ -153,6 +179,9 @@ public class BrokerStartup {
                 }
             }
 
+            // 根据BrokerRole设置BrokerId，默认是ASYNC_MASTER
+            // 如果是ASYNC_MASTER或SYNC_MASTER，将MASTER_ID设置为0
+            // 如果是SLAVE,
             switch (messageStoreConfig.getBrokerRole()) {
                 case ASYNC_MASTER:
                 case SYNC_MASTER:
@@ -173,6 +202,7 @@ public class BrokerStartup {
                 brokerConfig.setBrokerId(-1);
             }
 
+            // 消息存储监听端口 nettyServerPort+1
             messageStoreConfig.setHaListenPort(nettyServerConfig.getListenPort() + 1);
             LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
             JoranConfigurator configurator = new JoranConfigurator();
@@ -187,6 +217,7 @@ public class BrokerStartup {
             }
             configurator.doConfigure(brokerConfig.getRocketmqHome() + "/conf/logback_broker.xml");
 
+            // 启动命令中包含'-p'参数，打印所有配置参数，并退出
             if (commandLine.hasOption('p')) {
                 InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.BROKER_CONSOLE_NAME);
                 MixAll.printObjectProperties(console, brokerConfig);
@@ -194,6 +225,7 @@ public class BrokerStartup {
                 MixAll.printObjectProperties(console, nettyClientConfig);
                 MixAll.printObjectProperties(console, messageStoreConfig);
                 System.exit(0);
+                // 启动命令中包含'-m'参数，打印重要参数，并退出
             } else if (commandLine.hasOption('m')) {
                 InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.BROKER_CONSOLE_NAME);
                 MixAll.printObjectProperties(console, brokerConfig, true);
@@ -209,20 +241,25 @@ public class BrokerStartup {
             MixAll.printObjectProperties(log, nettyClientConfig);
             MixAll.printObjectProperties(log, messageStoreConfig);
 
+            // 创建broker
             final BrokerController controller = new BrokerController(
                 brokerConfig,
                 nettyServerConfig,
                 nettyClientConfig,
                 messageStoreConfig);
             // remember all configs to prevent discard
+            // 配置记录在Controller中的Configuration中
             controller.getConfiguration().registerConfig(properties);
 
+            // controller初始化
             boolean initResult = controller.initialize();
+            // 初始化失败，则退出
             if (!initResult) {
                 controller.shutdown();
                 System.exit(-3);
             }
 
+            // 添加shutdownHook
             Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
                 private volatile boolean hasShutdown = false;
                 private AtomicInteger shutdownTimes = new AtomicInteger(0);

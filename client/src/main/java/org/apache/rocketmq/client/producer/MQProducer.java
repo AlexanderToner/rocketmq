@@ -27,27 +27,74 @@ import org.apache.rocketmq.common.message.MessageQueue;
 import org.apache.rocketmq.remoting.exception.RemotingException;
 
 public interface MQProducer extends MQAdmin {
+    /**
+     * 打开Producer
+     * @throws MQClientException
+     */
     void start() throws MQClientException;
 
+    /**
+     * 关闭Producer
+     */
     void shutdown();
 
+    /**
+     * 根据topic获取MessageQueue
+     * @param topic
+     * @return
+     * @throws MQClientException
+     */
     List<MessageQueue> fetchPublishMessageQueues(final String topic) throws MQClientException;
 
+    /**
+     * 推送消息
+     * @param msg
+     * @return
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws MQBrokerException
+     * @throws InterruptedException
+     */
     SendResult send(final Message msg) throws MQClientException, RemotingException, MQBrokerException,
         InterruptedException;
 
     SendResult send(final Message msg, final long timeout) throws MQClientException,
         RemotingException, MQBrokerException, InterruptedException;
 
+    /**
+     * 推送异步消息
+     * @param msg
+     * @param sendCallback
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws InterruptedException
+     */
     void send(final Message msg, final SendCallback sendCallback) throws MQClientException,
         RemotingException, InterruptedException;
 
     void send(final Message msg, final SendCallback sendCallback, final long timeout)
         throws MQClientException, RemotingException, InterruptedException;
 
+    /**
+     * 单向详细推送
+     * @param msg
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws InterruptedException
+     */
     void sendOneway(final Message msg) throws MQClientException, RemotingException,
         InterruptedException;
 
+    /**
+     * 将消息推送到指定MessageQueue中
+     * @param msg
+     * @param mq
+     * @return
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws MQBrokerException
+     * @throws InterruptedException
+     */
     SendResult send(final Message msg, final MessageQueue mq) throws MQClientException,
         RemotingException, MQBrokerException, InterruptedException;
 
@@ -60,9 +107,28 @@ public interface MQProducer extends MQAdmin {
     void send(final Message msg, final MessageQueue mq, final SendCallback sendCallback, long timeout)
         throws MQClientException, RemotingException, InterruptedException;
 
+    /**
+     * 单向消息推送，并将消息推送到指定的类中
+     * @param msg
+     * @param mq
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws InterruptedException
+     */
     void sendOneway(final Message msg, final MessageQueue mq) throws MQClientException,
         RemotingException, InterruptedException;
 
+    /**
+     * 推送消息，并根据selector推送到指定的MessageQueue中
+     * @param msg
+     * @param selector
+     * @param arg
+     * @return
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws MQBrokerException
+     * @throws InterruptedException
+     */
     SendResult send(final Message msg, final MessageQueueSelector selector, final Object arg)
         throws MQClientException, RemotingException, MQBrokerException, InterruptedException;
 
@@ -81,6 +147,14 @@ public interface MQProducer extends MQAdmin {
     void sendOneway(final Message msg, final MessageQueueSelector selector, final Object arg)
         throws MQClientException, RemotingException, InterruptedException;
 
+    /**
+     * 推送事务消息
+     * @param msg
+     * @param tranExecuter
+     * @param arg
+     * @return
+     * @throws MQClientException
+     */
     TransactionSendResult sendMessageInTransaction(final Message msg,
         final LocalTransactionExecuter tranExecuter, final Object arg) throws MQClientException;
 
@@ -88,6 +162,16 @@ public interface MQProducer extends MQAdmin {
         final Object arg) throws MQClientException;
 
     //for batch
+
+    /**
+     * 推送批量消息
+     * @param msgs
+     * @return
+     * @throws MQClientException
+     * @throws RemotingException
+     * @throws MQBrokerException
+     * @throws InterruptedException
+     */
     SendResult send(final Collection<Message> msgs) throws MQClientException, RemotingException, MQBrokerException,
         InterruptedException;
 

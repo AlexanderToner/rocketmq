@@ -55,6 +55,7 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
         switch (request.getCode()) {
+            // 处理心跳请求
             case RequestCode.HEART_BEAT:
                 return this.heartBeat(ctx, request);
             case RequestCode.UNREGISTER_CLIENT:
@@ -72,8 +73,20 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
         return false;
     }
 
+    /**
+     * 处理心跳包的代码如下，主要逻辑如下
+     *
+     * - 解码心跳包请求
+     * - 遍历ConsumerData，首先获取ConsumerData中的订阅信息(SubscriptionGroupConfig)，如果订阅信息不存在，说明当前订阅信息是第一次注册到Broker，
+     *   需要创建一个名为%RETRY%${consumerGroup}的重试Topic，然后注册Consumer
+     * - 遍历ProducerData，将Producer信息(producerGroup)注册到Broker中
+     * @param ctx
+     * @param request
+     * @return
+     */
     public RemotingCommand heartBeat(ChannelHandlerContext ctx, RemotingCommand request) {
         RemotingCommand response = RemotingCommand.createResponseCommand(null);
+        // 解码心跳包请求
         HeartbeatData heartbeatData = HeartbeatData.decode(request.getBody(), HeartbeatData.class);
         ClientChannelInfo clientChannelInfo = new ClientChannelInfo(
             ctx.channel(),
@@ -82,24 +95,27 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
             request.getVersion()
         );
 
+        // 遍历consumerData
         for (ConsumerData data : heartbeatData.getConsumerDataSet()) {
-            SubscriptionGroupConfig subscriptionGroupConfig =
-                this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(
-                    data.getGroupName());
+            // 获取订阅信息配置，如果订阅信息不存在，则创建新的SubscriptionGroupConfig
+            SubscriptionGroupConfig subscriptionGroupConfig = this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig( data.getGroupName());
             boolean isNotifyConsumerIdsChangedEnable = true;
             if (null != subscriptionGroupConfig) {
+                // 获取重试Topic(%RETRY%ConsumerGroup)
                 isNotifyConsumerIdsChangedEnable = subscriptionGroupConfig.isNotifyConsumerIdsChangedEnable();
                 int topicSysFlag = 0;
                 if (data.isUnitMode()) {
                     topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
                 }
                 String newTopic = MixAll.getRetryTopic(data.getGroupName());
+                // 创建重试topic
                 this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
                     newTopic,
                     subscriptionGroupConfig.getRetryQueueNums(),
                     PermName.PERM_WRITE | PermName.PERM_READ, topicSysFlag);
             }
 
+            // 注册consumer，如果订阅关系变化，则会通知所有Consumer
             boolean changed = this.brokerController.getConsumerManager().registerConsumer(
                 data.getGroupName(),
                 clientChannelInfo,
@@ -118,6 +134,7 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
             }
         }
 
+        // 注册producer信息
         for (ProducerData data : heartbeatData.getProducerDataSet()) {
             this.brokerController.getProducerManager().registerProducer(data.getGroupName(),
                 clientChannelInfo);

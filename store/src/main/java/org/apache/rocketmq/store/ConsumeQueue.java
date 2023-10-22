@@ -407,6 +407,7 @@ public class ConsumeQueue {
                     this.defaultMessageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
                 }
+                // 如果consumeQueue保存成功，则更新ConsumeQueue存储点信息
                 this.defaultMessageStore.getStoreCheckpoint().setLogicsMsgTimestamp(request.getStoreTimestamp());
                 if (multiQueue) {
                     multiDispatchLmqQueue(request, maxRetries);
@@ -484,13 +485,18 @@ public class ConsumeQueue {
         }
 
         this.byteBufferIndex.flip();
+        // consumeQueue存储单元的长度
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
+        // 消息物理偏移量
         this.byteBufferIndex.putLong(offset);
+        // 消息长度
         this.byteBufferIndex.putInt(size);
+        // 消息tags的哈希码
         this.byteBufferIndex.putLong(tagsCode);
 
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
 
+        // 获取最后一个mappedFile
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 
@@ -523,7 +529,9 @@ public class ConsumeQueue {
                     );
                 }
             }
+            // 更新物理offset
             this.maxPhysicOffset = offset + size;
+            // 数据保存到consumeQueue
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;

@@ -86,9 +86,13 @@ public class IndexFile {
     }
 
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
+        // 索引数量小于2000W，否则说明当前索引文件已经满了，不能添加索引
         if (this.indexHeader.getIndexCount() < this.indexNum) {
+            // keyHashCode
             int keyHash = indexKeyHashMethod(key);
+            // 索引槽位置
             int slotPos = keyHash % this.hashSlotNum;
+            // 绝对位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             try {
@@ -111,15 +115,18 @@ public class IndexFile {
                 }
 
                 int absIndexPos =
-                    IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
+                    IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize/*哈希槽数量*哈希槽大小=500w*4*/
                         + this.indexHeader.getIndexCount() * indexSize;
 
-                this.mappedByteBuffer.putInt(absIndexPos, keyHash);
+                // 更新IndexFile索引单元信息
+                // keyHash(4)+消息在commitLog中的偏移量(8)+消息存储时间-索引文件开始存储时间(4)+前置消息索引值(4)
+                this.mappedByteBuffer.putInt(absIndexPos/*索引位置*/, keyHash);
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
 
-                this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
+                // 更新slots的indexCount
+                this.mappedByteBuffer.putInt(absSlotPos/*hash槽的绝对位置*/, this.indexHeader.getIndexCount());
 
                 if (this.indexHeader.getIndexCount() <= 1) {
                     this.indexHeader.setBeginPhyOffset(phyOffset);
@@ -129,6 +136,7 @@ public class IndexFile {
                 if (invalidIndex == slotValue) {
                     this.indexHeader.incHashSlotCount();
                 }
+                // 更新IndexHeader信息
                 this.indexHeader.incIndexCount();
                 this.indexHeader.setEndPhyOffset(phyOffset);
                 this.indexHeader.setEndTimestamp(storeTimestamp);

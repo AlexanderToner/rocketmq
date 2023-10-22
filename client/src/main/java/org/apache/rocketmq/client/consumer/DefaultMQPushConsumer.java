@@ -67,12 +67,14 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Internal implementation. Most of the functions herein are delegated to it.
+     * DefaultMQPushConsumer的默认实现，DefaultMQPushConsumer中大部分功能都是对它的代理
      */
     protected final transient DefaultMQPushConsumerImpl defaultMQPushConsumerImpl;
 
     /**
      * Consumers of the same role is required to have exactly same subscriptions and consumerGroup to correctly achieve
      * load balance. It's required and needs to be globally unique.
+     * 相同角色的消费者需要具有完全相同的subscriptions和consumerGroup才能正确实现负载平衡，它需要全局唯一
      * </p>
      *
      * See <a href="http://rocketmq.apache.org/docs/core-concept/">here</a> for further discussion.
@@ -87,6 +89,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * the same {@link #consumerGroup} would only consume shards of the messages subscribed, which achieves load
      * balances; Conversely, if the broadcasting is set, each consumer client will consume all subscribed messages
      * separately.
+     * 消息模型定义了如何将消息传递到每个消费者客户端的方式，默认是集群模式
      * </p>
      *
      * This field defaults to clustering.
@@ -121,6 +124,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * <li>
      * <code>CONSUME_FROM_TIMESTAMP</code>: Consumer client will start from specified timestamp, which means
      * messages born prior to {@link #consumeTimestamp} will be ignored
+     * 第一次消费时指定的消费策略，默认是CONSUME_FROM_LAST_OFFSET
      * </li>
      * </ul>
      */
@@ -136,31 +140,37 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Queue allocation algorithm specifying how message queues are allocated to each consumer clients.
+     * 队列分配算法，指定如何将消息队列分配给每个使用者客户端。
      */
     private AllocateMessageQueueStrategy allocateMessageQueueStrategy;
 
     /**
      * Subscription relationship
+     * 订阅关系
      */
     private Map<String /* topic */, String /* sub expression */> subscription = new HashMap<String, String>();
 
     /**
      * Message listener
+     * 消息监听器
      */
     private MessageListener messageListener;
 
     /**
      * Offset Storage
+     * 消息消费进度存储器
      */
     private OffsetStore offsetStore;
 
     /**
      * Minimum consumer thread number
+     * 最小消费线程数
      */
     private int consumeThreadMin = 20;
 
     /**
      * Max consumer thread number
+     * 最大消费线程数
      */
     private int consumeThreadMax = 20;
 
@@ -213,21 +223,25 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Message pull Interval
+     * 推送模式下拉去消息的间隔时间，默认一次拉取消息完成后立刻继续拉取
      */
     private long pullInterval = 0;
 
     /**
      * Batch consumption size
+     * 批量消费数量
      */
     private int consumeMessageBatchMaxSize = 1;
 
     /**
      * Batch pull size
+     * 批量拉取的数量
      */
     private int pullBatchSize = 32;
 
     /**
      * Whether update subscription relationship when every pull
+     * 每次拉取时是否更新订阅关系,默认是false
      */
     private boolean postSubscriptionWhenPull = false;
 
@@ -242,21 +256,25 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      * In orderly mode, -1 means Integer.MAX_VALUE.
      *
      * If messages are re-consumed more than {@link #maxReconsumeTimes} before success.
+     * 消息最大重试次数，如果消息消费最大次数超过maxReconsumeTimes还未成功，则消息将被转移到一个失败队列
      */
     private int maxReconsumeTimes = -1;
 
     /**
      * Suspending pulling time for cases requiring slow pulling like flow-control scenario.
+     * 延迟将该队列的消息提交到消费者线程的等待时间，默认延迟1s
      */
     private long suspendCurrentQueueTimeMillis = 1000;
 
     /**
      * Maximum amount of time in minutes a message may block the consuming thread.
+     * 消息阻塞消费线程的最大超时时间，默认15分钟
      */
     private long consumeTimeout = 15;
 
     /**
      * Maximum time to await message consuming when shutdown consumer, 0 indicates no await.
+     * 关闭使用者时等待消息的最长时间，0表示没有等待。
      */
     private long awaitTerminationMillisWhenShutdown = 0;
 
@@ -703,8 +721,11 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
      */
     @Override
     public void start() throws MQClientException {
+        // consumerGroup封装namespace
         setConsumerGroup(NamespaceUtil.wrapNamespace(this.getNamespace(), this.consumerGroup));
+        // DefaultMQPushConsumerImpl启动
         this.defaultMQPushConsumerImpl.start();
+        // 消息轨迹跟踪服务，默认null
         if (null != traceDispatcher) {
             try {
                 traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());

@@ -55,10 +55,12 @@ public class IndexService {
     }
 
     public boolean load(final boolean lastExitOK) {
+        // indexFile文件目录
         File dir = new File(this.storePath);
+        // indexFile文件列表
         File[] files = dir.listFiles();
         if (files != null) {
-            // ascending order
+            // 文件排序
             Arrays.sort(files);
             for (File file : files) {
                 try {
@@ -66,6 +68,7 @@ public class IndexService {
                     f.load();
 
                     if (!lastExitOK) {
+                        // 文件最后存储时间戳大于刷盘点，则摧毁indexFile，重建
                         if (f.getEndTimestamp() > this.defaultMessageStore.getStoreCheckpoint()
                             .getIndexMsgTimestamp()) {
                             f.destroy(0);
@@ -95,6 +98,7 @@ public class IndexService {
                 return;
             }
 
+            // indexFileList的第一个索引文件的最后一个offset
             long endPhyOffset = this.indexFileList.get(0).getEndPhyOffset();
             if (endPhyOffset < offset) {
                 files = this.indexFileList.toArray();
@@ -109,6 +113,7 @@ public class IndexService {
             List<IndexFile> fileList = new ArrayList<IndexFile>();
             for (int i = 0; i < (files.length - 1); i++) {
                 IndexFile f = (IndexFile) files[i];
+                // IndexFile中最大的offset小于CommitLog最小offset，说明文件可以被删除
                 if (f.getEndPhyOffset() < offset) {
                     fileList.add(f);
                 } else {
@@ -116,6 +121,7 @@ public class IndexService {
                 }
             }
 
+            // 删除过期的IndexFile，并将其从indexFileList缓存中删除
             this.deleteExpiredFile(fileList);
         }
     }
@@ -199,12 +205,16 @@ public class IndexService {
     }
 
     public void buildIndex(DispatchRequest req) {
+        // 获取或者创建最新索引文件，支持重试最多3次
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
+            // 获取结束物理索引
             long endPhyOffset = indexFile.getEndPhyOffset();
             DispatchRequest msg = req;
+            // 获取topic和keys
             String topic = msg.getTopic();
             String keys = msg.getKeys();
+            // 如果当前消息的commitLogOffset小于当前IndexFile的endPhyOffset时，说明当前消息已经构建过Index索引，因此直接返回
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -219,6 +229,8 @@ public class IndexService {
                     return;
             }
 
+            // 获取客户端生成的uniqueId(msgId)，代表客户端生成的唯一一条消息
+            // 消息解密时生成的
             if (req.getUniqKey() != null) {
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
@@ -227,6 +239,7 @@ public class IndexService {
                 }
             }
 
+            // 客户端传递的keys，消息是从keys属性中获取的
             if (keys != null && keys.length() > 0) {
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {

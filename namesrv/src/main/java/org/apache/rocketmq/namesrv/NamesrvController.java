@@ -66,24 +66,24 @@ public class NamesrvController {
         this.kvConfigManager = new KVConfigManager(this);
         this.routeInfoManager = new RouteInfoManager();
         this.brokerHousekeepingService = new BrokerHousekeepingService(this);
-        this.configuration = new Configuration(
-            log,
-            this.namesrvConfig, this.nettyServerConfig
-        );
+        this.configuration = new Configuration( log, this.namesrvConfig, this.nettyServerConfig );
         this.configuration.setStorePathFromConfig(this.namesrvConfig, "configStorePath");
     }
 
     public boolean initialize() {
 
+        // 加载kv config
         this.kvConfigManager.load();
 
+        //初始化nettyServer
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
 
-        this.remotingExecutor =
-            Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
+        this.remotingExecutor = Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
+        // 注册请求处理器到netty服务中
         this.registerProcessor();
 
+        // 每5秒检测一次不健康的broker
         this.scheduledExecutorService.scheduleAtFixedRate(NamesrvController.this.routeInfoManager::scanNotActiveBroker, 5, 10, TimeUnit.SECONDS);
 
         this.scheduledExecutorService.scheduleAtFixedRate(NamesrvController.this.kvConfigManager::printAllPeriodically, 1, 10, TimeUnit.MINUTES);
@@ -92,11 +92,7 @@ public class NamesrvController {
             // Register a listener to reload SslContext
             try {
                 fileWatchService = new FileWatchService(
-                    new String[] {
-                        TlsSystemConfig.tlsServerCertPath,
-                        TlsSystemConfig.tlsServerKeyPath,
-                        TlsSystemConfig.tlsServerTrustCertPath
-                    },
+                    new String[] { TlsSystemConfig.tlsServerCertPath, TlsSystemConfig.tlsServerKeyPath, TlsSystemConfig.tlsServerTrustCertPath },
                     new FileWatchService.Listener() {
                         boolean certChanged, keyChanged = false;
                         @Override
@@ -125,34 +121,35 @@ public class NamesrvController {
                 log.warn("FileWatchService created error, can't load the certificate dynamically");
             }
         }
-
         return true;
     }
 
     private void registerProcessor() {
         if (namesrvConfig.isClusterTest()) {
-
-            this.remotingServer.registerDefaultProcessor(new ClusterTestRequestProcessor(this, namesrvConfig.getProductEnvName()),
-                this.remotingExecutor);
+            this.remotingServer.registerDefaultProcessor(new ClusterTestRequestProcessor(this, namesrvConfig.getProductEnvName()), this.remotingExecutor);
         } else {
-
             this.remotingServer.registerDefaultProcessor(new DefaultRequestProcessor(this), this.remotingExecutor);
         }
     }
 
     public void start() throws Exception {
+        // remotingServer启动
         this.remotingServer.start();
 
+        // 文件监视服务
         if (this.fileWatchService != null) {
             this.fileWatchService.start();
         }
     }
 
     public void shutdown() {
+        // 网络通信服务端关闭
         this.remotingServer.shutdown();
         this.remotingExecutor.shutdown();
+        // 定时调度线程池关闭
         this.scheduledExecutorService.shutdown();
 
+        // fileWatchService关闭
         if (this.fileWatchService != null) {
             this.fileWatchService.shutdown();
         }

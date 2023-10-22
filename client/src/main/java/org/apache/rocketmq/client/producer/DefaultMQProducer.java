@@ -62,13 +62,19 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Wrapping internal implementations for virtually all methods presented in this class.
+     * 它是包装类所有方法的内部实现类
      */
     protected final transient DefaultMQProducerImpl defaultMQProducerImpl;
     private final InternalLogger log = ClientLogger.getLog();
+    // 返回结果需要重试的ResponseCode
     private final Set<Integer> retryResponseCodes = new CopyOnWriteArraySet<Integer>(Arrays.asList(
+            // Topic不存在
             ResponseCode.TOPIC_NOT_EXIST,
+            // 服务不可以用
             ResponseCode.SERVICE_NOT_AVAILABLE,
+            // 系统异常
             ResponseCode.SYSTEM_ERROR,
+            // 无权限
             ResponseCode.NO_PERMISSION,
             ResponseCode.NO_BUYER_ID,
             ResponseCode.NOT_IN_CURRENT_UNIT
@@ -77,7 +83,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Producer group conceptually aggregates all producer instances of exactly same role, which is particularly
      * important when transactional messages are involved. </p>
-     *
+     * producerGroup是相同角色生产者的聚合概念，它对于事务消息很重要，对于普通消息不重要
      * For non-transactional messages, it does not matter as long as it's unique per process. </p>
      *
      * See <a href="http://rocketmq.apache.org/docs/core-concept/">core concepts</a> for more discussion.
@@ -86,21 +92,25 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Just for testing or demo program
+     * 自动创建topic的key TBW102
      */
     private String createTopicKey = TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC;
 
     /**
      * Number of queues to create per default topic.
+     * 默认topic的队列数量
      */
     private volatile int defaultTopicQueueNums = 4;
 
     /**
      * Timeout for sending messages.
+     * 消息发送超时时间，默认3秒
      */
     private int sendMsgTimeout = 3000;
 
     /**
      * Compress message body threshold, namely, message body larger than 4k will be compressed on default.
+     * 压缩消息体阈值，如果消息体大于4K，则默认会被压缩
      */
     private int compressMsgBodyOverHowmuch = 1024 * 4;
 
@@ -108,6 +118,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      * Maximum number of retry to perform internally before claiming sending failure in synchronous mode. </p>
      *
      * This may potentially cause message duplication which is up to application developers to resolve.
+     * 同步模式下消息推送失败重试次数，这个配置可能会导致消息重复
      */
     private int retryTimesWhenSendFailed = 2;
 
@@ -115,21 +126,25 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      * Maximum number of retry to perform internally before claiming sending failure in asynchronous mode. </p>
      *
      * This may potentially cause message duplication which is up to application developers to resolve.
+     * 异步模式下消息推送失败重试次数，这个配置可能会导致消息重复
      */
     private int retryTimesWhenSendAsyncFailed = 2;
 
     /**
      * Indicate whether to retry another broker on sending failure internally.
+     * 消息推送失败是否要换选择另外一个broker重试
      */
     private boolean retryAnotherBrokerWhenNotStoreOK = false;
 
     /**
      * Maximum allowed message body size in bytes.
+     * 消息允许的最大size，默认4M
      */
     private int maxMessageSize = 1024 * 1024 * 4; // 4M
 
     /**
      * Interface of asynchronous transfer data
+     * 异步消息追踪器
      */
     private TraceDispatcher traceDispatcher = null;
 
@@ -266,7 +281,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
             ((AsyncTraceDispatcher) traceDispatcher).getTraceProducer().setUseTLS(useTLS);
         }
     }
-    
+
     /**
      * Start this producer instance. </p>
      *
@@ -277,6 +292,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      */
     @Override
     public void start() throws MQClientException {
+        // 包装producerGroup
         this.setProducerGroup(withNamespace(this.producerGroup));
         this.defaultMQProducerImpl.start();
         if (null != traceDispatcher) {

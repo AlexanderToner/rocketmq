@@ -74,8 +74,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
     }
 
     @Override
-    public RemotingCommand processRequest(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
 
         if (ctx != null) {
             log.debug("receive request, {} {} {}",
@@ -94,6 +93,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
                 return this.deleteKVConfig(ctx, request);
             case RequestCode.QUERY_DATA_VERSION:
                 return queryBrokerTopicConfig(ctx, request);
+            // 注册broker
             case RequestCode.REGISTER_BROKER:
                 Version brokerVersion = MQVersion.value2Version(request.getVersion());
                 if (brokerVersion.ordinal() >= MQVersion.Version.V3_0_11.ordinal()) {
@@ -206,11 +206,19 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
 
     public RemotingCommand registerBrokerWithFilterServer(ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
+        //创建返回体
         final RemotingCommand response = RemotingCommand.createResponseCommand(RegisterBrokerResponseHeader.class);
+        //创建返回体Header
         final RegisterBrokerResponseHeader responseHeader = (RegisterBrokerResponseHeader) response.readCustomHeader();
-        final RegisterBrokerRequestHeader requestHeader =
-            (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
+        // 解析请求体Header
+        final RegisterBrokerRequestHeader requestHeader = (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
 
+        /**
+         * CRC检验原理实际上就是在一个p位二进制数据序列之后附加一个r位二进制检验码(序列)，从而构成一个总长为n＝p＋r位的二进制序列；
+         * 附加在数据序列之后的这个检验码与数据序列的内容之间存在着某种特定的关系。如果因干扰等原因使数据序列中的某一位或某些位发生错误，
+         * 这种特定关系就会被破坏。因此，通过检查这一关系，就可以实现对数据正确性的检验。
+         */
+        //校验crc32
         if (!checksum(ctx, request, requestHeader)) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("crc32 not match");
@@ -221,6 +229,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
 
         if (request.getBody() != null) {
             try {
+                // 解析requestBody中的路由信息(json反序列化)
                 registerBrokerBody = RegisterBrokerBody.decode(request.getBody(), requestHeader.isCompressed());
             } catch (Exception e) {
                 throw new RemotingCommandException("Failed to decode RegisterBrokerBody", e);
@@ -230,6 +239,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             registerBrokerBody.getTopicConfigSerializeWrapper().getDataVersion().setTimestamp(0);
         }
 
+        //⭐️⭐️⭐️⭐️⭐️ 注册Broker
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),
@@ -295,6 +305,12 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
         final RegisterBrokerRequestHeader requestHeader =
             (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
 
+        /**
+         * CRC检验原理实际上就是在一个p位二进制数据序列之后附加一个r位二进制检验码(序列)，从而构成一个总长为n＝p＋r位的二进制序列；
+         * 附加在数据序列之后的这个检验码与数据序列的内容之间存在着某种特定的关系。如果因干扰等原因使数据序列中的某一位或某些位发生错误，
+         * 这种特定关系就会被破坏。因此，通过检查这一关系，就可以实现对数据正确性的检验。
+         */
+        //校验crc32
         if (!checksum(ctx, request, requestHeader)) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("crc32 not match");
@@ -303,6 +319,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
 
         TopicConfigSerializeWrapper topicConfigWrapper;
         if (request.getBody() != null) {
+            // 解析requestBody中的路由信息(json反序列化)
             topicConfigWrapper = TopicConfigSerializeWrapper.decode(request.getBody(), TopicConfigSerializeWrapper.class);
         } else {
             topicConfigWrapper = new TopicConfigSerializeWrapper();
@@ -310,6 +327,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             topicConfigWrapper.getDataVersion().setTimestamp(0);
         }
 
+        // 刷新broker路由信息
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),
@@ -358,18 +376,14 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
 
         if (topicRouteData != null) {
             if (this.namesrvController.getNamesrvConfig().isOrderMessageEnable()) {
-                String orderTopicConf =
-                    this.namesrvController.getKvConfigManager().getKVConfig(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG,
-                        requestHeader.getTopic());
+                String orderTopicConf = this.namesrvController.getKvConfigManager().getKVConfig(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG, requestHeader.getTopic());
                 topicRouteData.setOrderTopicConf(orderTopicConf);
             }
 
             byte[] content;
             Boolean standardJsonOnly = requestHeader.getAcceptStandardJsonOnly();
             if (request.getVersion() >= Version.V4_9_4.ordinal() || (null != standardJsonOnly && standardJsonOnly)) {
-                content = topicRouteData.encode(SerializerFeature.BrowserCompatible,
-                    SerializerFeature.QuoteFieldNames, SerializerFeature.SkipTransientField,
-                    SerializerFeature.MapSortField);
+                content = topicRouteData.encode(SerializerFeature.BrowserCompatible, SerializerFeature.QuoteFieldNames, SerializerFeature.SkipTransientField, SerializerFeature.MapSortField);
             } else {
                 content = RemotingSerializable.encode(topicRouteData);
             }
