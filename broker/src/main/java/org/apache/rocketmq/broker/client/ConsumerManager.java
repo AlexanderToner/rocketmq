@@ -36,8 +36,7 @@ import org.apache.rocketmq.remoting.common.RemotingUtil;
 public class ConsumerManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final long CHANNEL_EXPIRED_TIMEOUT = 1000 * 120;
-    private final ConcurrentMap<String/* Group */, ConsumerGroupInfo> consumerTable =
-        new ConcurrentHashMap<String, ConsumerGroupInfo>(1024);
+    private final ConcurrentMap<String/* Group */, ConsumerGroupInfo> consumerTable = new ConcurrentHashMap<String, ConsumerGroupInfo>(1024);
     private final ConsumerIdsChangeListener consumerIdsChangeListener;
 
     public ConsumerManager(final ConsumerIdsChangeListener consumerIdsChangeListener) {
@@ -116,9 +115,14 @@ public class ConsumerManager {
      * @param isNotifyConsumerIdsChangedEnable
      * @return
      */
-    public boolean registerConsumer(final String group, final ClientChannelInfo clientChannelInfo,
-        ConsumeType consumeType, MessageModel messageModel, ConsumeFromWhere consumeFromWhere,
-        final Set<SubscriptionData> subList, boolean isNotifyConsumerIdsChangedEnable) {
+    public boolean registerConsumer(
+            final String group,
+            final ClientChannelInfo clientChannelInfo,
+            ConsumeType consumeType,
+            MessageModel messageModel,
+            ConsumeFromWhere consumeFromWhere,
+            final Set<SubscriptionData> subList,
+            boolean isNotifyConsumerIdsChangedEnable) {
 
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
         // consumerGroupInfo是空，说明是第一个注册的Consumer，创建一个ConsumerGroupInfo

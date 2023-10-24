@@ -1091,6 +1091,7 @@ public class BrokerController {
     }
 
     private void doRegisterBrokerAll(boolean checkOrderConfig, boolean oneway, TopicConfigSerializeWrapper topicConfigWrapper) {
+        //通过brokerOuterAPI注册Broker的信息到NameServer
         List<RegisterBrokerResult> registerBrokerResultList = this.brokerOuterAPI.registerBrokerAll(
             this.brokerConfig.getBrokerClusterName(),
             this.getBrokerAddr(),
@@ -1103,6 +1104,7 @@ public class BrokerController {
             this.brokerConfig.getRegisterBrokerTimeoutMills(),
             this.brokerConfig.isCompressedRegister());
 
+        //注册结果返回处理
         if (registerBrokerResultList.size() > 0) {
             RegisterBrokerResult registerBrokerResult = registerBrokerResultList.get(0);
             if (registerBrokerResult != null) {

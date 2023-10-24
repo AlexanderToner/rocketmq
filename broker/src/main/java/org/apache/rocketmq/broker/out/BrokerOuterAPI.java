@@ -128,13 +128,14 @@ public class BrokerOuterAPI {
 
             // 设置RegisterBrokerRequestHeader
             final RegisterBrokerRequestHeader requestHeader = new RegisterBrokerRequestHeader();
-            requestHeader.setBrokerAddr(brokerAddr);
-            requestHeader.setBrokerId(brokerId);
-            requestHeader.setBrokerName(brokerName);
-            requestHeader.setClusterName(clusterName);
-            requestHeader.setHaServerAddr(haServerAddr);
-            requestHeader.setCompressed(compressed);
+            requestHeader.setBrokerAddr(brokerAddr);        // broker地址 IP:Port
+            requestHeader.setBrokerId(brokerId);            // broker id
+            requestHeader.setBrokerName(brokerName);        // broker名称
+            requestHeader.setClusterName(clusterName);      // 集群名称
+            requestHeader.setHaServerAddr(haServerAddr);    // haServer地址
+            requestHeader.setCompressed(compressed);        // 是否压缩
 
+            //构造 RegisterBrokerBody
             RegisterBrokerBody requestBody = new RegisterBrokerBody();
             requestBody.setTopicConfigSerializeWrapper(topicConfigWrapper);
             requestBody.setFilterServerList(filterServerList);
@@ -146,7 +147,7 @@ public class BrokerOuterAPI {
             for (final String namesrvAddr : nameServerAddressList) {
                 brokerOuterExecutor.execute(() -> {
                     try {
-                        // 发送心跳
+                        // 然后就是发送数据到NameServer
                         RegisterBrokerResult result = registerBroker(namesrvAddr, oneway, timeoutMills, requestHeader, body);
                         if (result != null) {
                             registerBrokerResultList.add(result);
@@ -194,8 +195,7 @@ public class BrokerOuterAPI {
         assert response != null;
         switch (response.getCode()) {
             case ResponseCode.SUCCESS: {
-                RegisterBrokerResponseHeader responseHeader =
-                    (RegisterBrokerResponseHeader) response.decodeCommandCustomHeader(RegisterBrokerResponseHeader.class);
+                RegisterBrokerResponseHeader responseHeader = (RegisterBrokerResponseHeader) response.decodeCommandCustomHeader(RegisterBrokerResponseHeader.class);
                 RegisterBrokerResult result = new RegisterBrokerResult();
                 result.setMasterAddr(responseHeader.getMasterAddr());
                 result.setHaServerAddr(responseHeader.getHaServerAddr());

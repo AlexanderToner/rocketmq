@@ -94,27 +94,28 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
         final long beginTimeMills = this.brokerController.getMessageStore().now();
         RemotingCommand response = RemotingCommand.createResponseCommand(PullMessageResponseHeader.class);
         final PullMessageResponseHeader responseHeader = (PullMessageResponseHeader) response.readCustomHeader();
-        final PullMessageRequestHeader requestHeader =
-            (PullMessageRequestHeader) request.decodeCommandCustomHeader(PullMessageRequestHeader.class);
+        final PullMessageRequestHeader requestHeader = (PullMessageRequestHeader) request.decodeCommandCustomHeader(PullMessageRequestHeader.class);
 
         response.setOpaque(request.getOpaque());
 
         log.debug("receive PullMessage request command, {}", request);
 
+        //判断Broker是否可读
         if (!PermName.isReadable(this.brokerController.getBrokerConfig().getBrokerPermission())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             response.setRemark(String.format("the broker[%s] pulling message is forbidden", this.brokerController.getBrokerConfig().getBrokerIP1()));
             return response;
         }
 
-        SubscriptionGroupConfig subscriptionGroupConfig =
-            this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getConsumerGroup());
+        // 判断consumerGroup是否存在-如果不存在判断是否允许自动创建，可以自动创建就直接创建消费者组(权限控制)
+        SubscriptionGroupConfig subscriptionGroupConfig =   this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getConsumerGroup());
         if (null == subscriptionGroupConfig) {
             response.setCode(ResponseCode.SUBSCRIPTION_GROUP_NOT_EXIST);
             response.setRemark(String.format("subscription group [%s] does not exist, %s", requestHeader.getConsumerGroup(), FAQUrl.suggestTodo(FAQUrl.SUBSCRIPTION_GROUP_NOT_EXIST)));
             return response;
         }
 
+        // 判断consumerGroup的消费状态是否Enable
         if (!subscriptionGroupConfig.isConsumeEnable()) {
             response.setCode(ResponseCode.NO_PERMISSION);
             response.setRemark("subscription group no permission, " + requestHeader.getConsumerGroup());
@@ -125,8 +126,10 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
         final boolean hasCommitOffsetFlag = PullSysFlag.hasCommitOffsetFlag(requestHeader.getSysFlag());
         final boolean hasSubscriptionFlag = PullSysFlag.hasSubscriptionFlag(requestHeader.getSysFlag());
 
+        //获取挂起超时时间
         final long suspendTimeoutMillisLong = hasSuspendFlag ? requestHeader.getSuspendTimeoutMillis() : 0;
 
+        //判断主题配置是否为空
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
             log.error("the topic {} not exist, consumer: {}", requestHeader.getTopic(), RemotingHelper.parseChannelRemoteAddr(channel));
@@ -135,15 +138,17 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
             return response;
         }
 
+        //判断主题是否可读
         if (!PermName.isReadable(topicConfig.getPerm())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             response.setRemark("the topic[" + requestHeader.getTopic() + "] pulling message is forbidden");
             return response;
         }
 
+        //判断请求消息队列ID是否合法
         if (requestHeader.getQueueId() < 0 || requestHeader.getQueueId() >= topicConfig.getReadQueueNums()) {
             String errorInfo = String.format("queueId[%d] is illegal, topic:[%s] topicConfig.readQueueNums:[%d] consumer:[%s]",
-                requestHeader.getQueueId(), requestHeader.getTopic(), topicConfig.getReadQueueNums(), channel.remoteAddress());
+                    requestHeader.getQueueId(), requestHeader.getTopic(), topicConfig.getReadQueueNums(), channel.remoteAddress());
             log.warn(errorInfo);
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark(errorInfo);
@@ -152,11 +157,12 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
 
         SubscriptionData subscriptionData = null;
         ConsumerFilterData consumerFilterData = null;
+        // 有设置subscribe flag,表示第一次pull或者需要更新filter
         if (hasSubscriptionFlag) {
             try {
-                subscriptionData = FilterAPI.build(
-                    requestHeader.getTopic(), requestHeader.getSubscription(), requestHeader.getExpressionType()
-                );
+                // 获得订阅信息，用于过滤消息
+                subscriptionData = FilterAPI.build(requestHeader.getTopic(), requestHeader.getSubscription(), requestHeader.getExpressionType());
+                // 是否使用了表达式过滤
                 if (!ExpressionType.isTagType(subscriptionData.getExpressionType())) {
                     consumerFilterData = ConsumerFilterManager.build(
                         requestHeader.getTopic(), requestHeader.getConsumerGroup(), requestHeader.getSubscription(),
@@ -172,8 +178,9 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                 return response;
             }
         } else {
-            ConsumerGroupInfo consumerGroupInfo =
-                this.brokerController.getConsumerManager().getConsumerGroupInfo(requestHeader.getConsumerGroup());
+            // 没有设置subscribe flag，表示之前已经订阅过了,对比订阅条件是否一致
+            // 对于同一个ConsumerGroup下的多个consumer客户端，Broker要求订阅参数设置必须要是一致的，要不然会造成数据混乱
+            ConsumerGroupInfo consumerGroupInfo = this.brokerController.getConsumerManager().getConsumerGroupInfo(requestHeader.getConsumerGroup());
             if (null == consumerGroupInfo) {
                 log.warn("the consumer's group info not exist, group: {}", requestHeader.getConsumerGroup());
                 response.setCode(ResponseCode.SUBSCRIPTION_NOT_EXIST);
@@ -181,8 +188,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                 return response;
             }
 
-            if (!subscriptionGroupConfig.isConsumeBroadcastEnable()
-                && consumerGroupInfo.getMessageModel() == MessageModel.BROADCASTING) {
+            if (!subscriptionGroupConfig.isConsumeBroadcastEnable() && consumerGroupInfo.getMessageModel() == MessageModel.BROADCASTING) {
                 response.setCode(ResponseCode.NO_PERMISSION);
                 response.setRemark("the consumer group[" + requestHeader.getConsumerGroup() + "] can not consume by broadcast way");
                 return response;
@@ -221,31 +227,29 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
             }
         }
 
-        if (!ExpressionType.isTagType(subscriptionData.getExpressionType())
-            && !this.brokerController.getBrokerConfig().isEnablePropertyFilter()) {
+        if (!ExpressionType.isTagType(subscriptionData.getExpressionType()) && !this.brokerController.getBrokerConfig().isEnablePropertyFilter()) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("The broker does not support consumer to filter message by " + subscriptionData.getExpressionType());
             return response;
         }
 
+        //创建消息过滤器
         MessageFilter messageFilter;
         if (this.brokerController.getBrokerConfig().isFilterSupportRetry()) {
-            messageFilter = new ExpressionForRetryMessageFilter(subscriptionData, consumerFilterData,
-                this.brokerController.getConsumerFilterManager());
+            messageFilter = new ExpressionForRetryMessageFilter(subscriptionData, consumerFilterData, this.brokerController.getConsumerFilterManager());
         } else {
-            messageFilter = new ExpressionMessageFilter(subscriptionData, consumerFilterData,
-                this.brokerController.getConsumerFilterManager());
+            messageFilter = new ExpressionMessageFilter(subscriptionData, consumerFilterData, this.brokerController.getConsumerFilterManager());
         }
 
-        final GetMessageResult getMessageResult =
-            this.brokerController.getMessageStore().getMessage(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
-                requestHeader.getQueueId(), requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter);
+        //读取消息
+        final GetMessageResult getMessageResult = this.brokerController.getMessageStore().getMessage(requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter);
         if (getMessageResult != null) {
             response.setRemark(getMessageResult.getStatus().name());
             responseHeader.setNextBeginOffset(getMessageResult.getNextBeginOffset());
             responseHeader.setMinOffset(getMessageResult.getMinOffset());
             responseHeader.setMaxOffset(getMessageResult.getMaxOffset());
 
+            //判断是否建议从slave读取数据---默认为false
             if (getMessageResult.isSuggestPullingFromSlave()) {
                 responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
             } else {
@@ -257,6 +261,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                 case SYNC_MASTER:
                     break;
                 case SLAVE:
+                    // 如果当前broker是slave，并且不支持read，则提示客户端从master读
                     if (!this.brokerController.getBrokerConfig().isSlaveReadEnable()) {
                         response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
                         responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
@@ -265,7 +270,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
             }
 
             if (this.brokerController.getBrokerConfig().isSlaveReadEnable()) {
-                // consume too slow ,redirect to another machine
+                // 消费太慢重定向到另外一台机器消费
                 if (getMessageResult.isSuggestPullingFromSlave()) {
                     responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
                 }
@@ -277,6 +282,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                 responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
             }
 
+            //将读取的消息状态转换为Response的状态code
             switch (getMessageResult.getStatus()) {
                 case FOUND:
                     response.setCode(ResponseCode.SUCCESS);
@@ -369,15 +375,14 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                 this.executeConsumeMessageHookBefore(context);
             }
 
+            //进一步处理返回的结果
             switch (response.getCode()) {
                 case ResponseCode.SUCCESS:
 
-                    this.brokerController.getBrokerStatsManager().incGroupGetNums(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
-                        getMessageResult.getMessageCount());
-
-                    this.brokerController.getBrokerStatsManager().incGroupGetSize(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
-                        getMessageResult.getBufferTotalSize());
-
+                    //更新topic获取的消息数量信息
+                    this.brokerController.getBrokerStatsManager().incGroupGetNums(requestHeader.getConsumerGroup(), requestHeader.getTopic(), getMessageResult.getMessageCount());
+                    //更新统计的消息大小
+                    this.brokerController.getBrokerStatsManager().incGroupGetSize(requestHeader.getConsumerGroup(), requestHeader.getTopic(), getMessageResult.getBufferTotalSize());
                     this.brokerController.getBrokerStatsManager().incBrokerGetNums(getMessageResult.getMessageCount());
                     if (this.brokerController.getBrokerConfig().isTransferMsgByHeap()) {
                         final byte[] r = this.readGetMessageResult(getMessageResult, requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId());
@@ -406,8 +411,10 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
                         response = null;
                     }
                     break;
+                //没有读取到消息，则hold住请求，有新消息时唤醒
+                //等待超时后还是没读到brokerAllowSuspend=false
                 case ResponseCode.PULL_NOT_FOUND:
-
+                    //brokerAllowSuspend=ture 方法传入
                     if (brokerAllowSuspend && hasSuspendFlag) {
                         long pollingTimeMills = suspendTimeoutMillisLong;
                         if (!this.brokerController.getBrokerConfig().isLongPollingEnable()) {
@@ -426,6 +433,7 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
 
                 case ResponseCode.PULL_RETRY_IMMEDIATELY:
                     break;
+                // 消费开始的offset不正确
                 case ResponseCode.PULL_OFFSET_MOVED:
                     if (this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE
                         || this.brokerController.getMessageStoreConfig().isOffsetCheckInSlave()) {
@@ -463,8 +471,8 @@ public class PullMessageProcessor extends AsyncNettyRequestProcessor implements 
 
         boolean storeOffsetEnable = brokerAllowSuspend;
         storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
-        storeOffsetEnable = storeOffsetEnable
-            && this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE;
+        storeOffsetEnable = storeOffsetEnable && this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE;
+        //持久化储存offerSet
         if (storeOffsetEnable) {
             this.brokerController.getConsumerOffsetManager().commitOffset(RemotingHelper.parseChannelRemoteAddr(channel),
                 requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getCommitOffset());

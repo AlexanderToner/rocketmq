@@ -136,8 +136,7 @@ public class ClientManageProcessor extends AsyncNettyRequestProcessor implements
 
         // 注册producer信息
         for (ProducerData data : heartbeatData.getProducerDataSet()) {
-            this.brokerController.getProducerManager().registerProducer(data.getGroupName(),
-                clientChannelInfo);
+            this.brokerController.getProducerManager().registerProducer(data.getGroupName(), clientChannelInfo);
         }
         response.setCode(ResponseCode.SUCCESS);
         response.setRemark(null);

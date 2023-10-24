@@ -618,9 +618,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 this.rebalanceImpl.setmQClientFactory(this.mQClientFactory);
 
                 // 构建拉消息包装器
-                this.pullAPIWrapper = new PullAPIWrapper(
-                    mQClientFactory,
-                    this.defaultMQPushConsumer.getConsumerGroup(), isUnitMode());
+                this.pullAPIWrapper = new PullAPIWrapper( mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup(), isUnitMode());
                 this.pullAPIWrapper.registerFilterMessageHook(filterMessageHookList);
 
                 if (this.defaultMQPushConsumer.getOffsetStore() != null) {
@@ -648,13 +646,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 // 如果是顺序消费
                 if (this.getMessageListenerInner() instanceof MessageListenerOrderly) {
                     this.consumeOrderly = true;
-                    this.consumeMessageService =
-                        new ConsumeMessageOrderlyService(this, (MessageListenerOrderly) this.getMessageListenerInner());
+                    this.consumeMessageService = new ConsumeMessageOrderlyService(this, (MessageListenerOrderly) this.getMessageListenerInner());
                     // 如果是并发消费
                 } else if (this.getMessageListenerInner() instanceof MessageListenerConcurrently) {
                     this.consumeOrderly = false;
-                    this.consumeMessageService =
-                        new ConsumeMessageConcurrentlyService(this, (MessageListenerConcurrently) this.getMessageListenerInner());
+                    this.consumeMessageService = new ConsumeMessageConcurrentlyService(this, (MessageListenerConcurrently) this.getMessageListenerInner());
                 }
 
                 this.consumeMessageService.start();

@@ -63,9 +63,7 @@ public class BrokerStartup {
 
             controller.start();
 
-            String tip = "The broker[" + controller.getBrokerConfig().getBrokerName() + ", "
-                + controller.getBrokerAddr() + "] boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
-
+            String tip = "The broker[" + controller.getBrokerConfig().getBrokerName() + ", " + controller.getBrokerAddr() + "] boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
             if (null != controller.getBrokerConfig().getNamesrvAddr()) {
                 tip += " and name server is " + controller.getBrokerConfig().getNamesrvAddr();
             }
@@ -108,8 +106,7 @@ public class BrokerStartup {
             //PackageConflictDetect.detectFastjson();
             // 如果启动命令不是mqbroker，则直接退出
             Options options = ServerUtil.buildCommandlineOptions(new Options());
-            commandLine = ServerUtil.parseCmdLine("mqbroker", args, buildCommandlineOptions(options),
-                new PosixParser());
+            commandLine = ServerUtil.parseCmdLine("mqbroker", args, buildCommandlineOptions(options), new PosixParser());
             if (null == commandLine) {
                 System.exit(-1);
             }
@@ -192,7 +189,6 @@ public class BrokerStartup {
                         System.out.printf("Slave's brokerId must be > 0");
                         System.exit(-3);
                     }
-
                     break;
                 default:
                     break;

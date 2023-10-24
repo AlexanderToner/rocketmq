@@ -232,15 +232,15 @@ public class MQClientInstance {
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
-                    // Start request-response channel
+                    // 启动客户端channel
                     this.mQClientAPIImpl.start();
-                    // Start various schedule tasks
+                    // 启动多个定时任务
                     this.startScheduledTask();
-                    // Start pull service
+                    // 启动拉取消息服务
                     this.pullMessageService.start();
-                    // Start rebalance service
+                    // 启动负载均衡服务
                     this.rebalanceService.start();
-                    // Start push service
+                    // 启动push服务(显示过期方法这个不关注)
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -530,6 +530,9 @@ public class MQClientInstance {
         return false;
     }
 
+    /**
+     * 给 Broker发送心跳
+     */
     private void sendHeartbeatToAllBroker() {
         final HeartbeatData heartbeatData = this.prepareHeartbeatData();
         final boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
