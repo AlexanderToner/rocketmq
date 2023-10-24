@@ -1018,6 +1018,7 @@ public class BrokerController {
         // 每隔30s发送一次心跳给namesrv
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
+
             @Override
             public void run() {
                 try {
