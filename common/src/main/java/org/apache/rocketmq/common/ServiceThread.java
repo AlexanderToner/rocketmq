@@ -28,28 +28,39 @@ public abstract class ServiceThread implements Runnable {
     private static final long JOIN_TIME = 90 * 1000;
 
     private Thread thread;
+    // waitPoint 起到主线程通知子线程的作用
     protected final CountDownLatch2 waitPoint = new CountDownLatch2(1);
+    // 是通知标识
     protected volatile AtomicBoolean hasNotified = new AtomicBoolean(false);
+    // 停止标识
     protected volatile boolean stopped = false;
+    // 是否守护线程
     protected boolean isDaemon = false;
 
-    //Make it able to restart the thread
+    // 线程开始标识
     private final AtomicBoolean started = new AtomicBoolean(false);
 
     public ServiceThread() {
 
     }
 
+    // 获取线程名称
     public abstract String getServiceName();
 
+    // 开始执行任务
     public void start() {
         log.info("Try to start service thread:{} started:{} lastThread:{}", getServiceName(), started.get(), thread);
+        // 任务已经开始运行标识
         if (!started.compareAndSet(false, true)) {
             return;
         }
+        // 停止标识设置为 false
         stopped = false;
+        // 绑定线程，运行当前任务
         this.thread = new Thread(this, getServiceName());
+        // 设置守护线程，守护线程具有最低的优先级，一般用于为系统中的其它对象和线程提供服务
         this.thread.setDaemon(isDaemon);
+        // 启动线程开始运行
         this.thread.start();
     }
 
@@ -59,21 +70,26 @@ public abstract class ServiceThread implements Runnable {
 
     public void shutdown(final boolean interrupt) {
         log.info("Try to shutdown service thread:{} started:{} lastThread:{}", getServiceName(), started.get(), thread);
+        // 任务必须已经开始
         if (!started.compareAndSet(true, false)) {
             return;
         }
+        // 设置停止标识
         this.stopped = true;
         log.info("shutdown thread " + this.getServiceName() + " interrupt " + interrupt);
 
         if (hasNotified.compareAndSet(false, true)) {
+            // 计数减1，通知等待的线程不要等待了
             waitPoint.countDown(); // notify
         }
 
         try {
+            // 中断线程，设置中断标识
             if (interrupt) {
                 this.thread.interrupt();
             }
 
+            // 守护线程等待执行完毕
             long beginTime = System.currentTimeMillis();
             if (!this.thread.isDaemon()) {
                 this.thread.join(this.getJointime());
@@ -126,21 +142,26 @@ public abstract class ServiceThread implements Runnable {
         }
     }
 
+    // 等待一定时间后运行
     protected void waitForRunning(long interval) {
         if (hasNotified.compareAndSet(true, false)) {
+            // 通知等待结束
             this.onWaitEnd();
             return;
         }
 
-        //entry to wait
+        // 重置计数
         waitPoint.reset();
 
         try {
+            // 一直等待，直到计数减为 0，或者超时
             waitPoint.await(interval, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             log.error("Interrupted", e);
         } finally {
+            // 设置未通知
             hasNotified.set(false);
+            // 通知等待结束
             this.onWaitEnd();
         }
     }

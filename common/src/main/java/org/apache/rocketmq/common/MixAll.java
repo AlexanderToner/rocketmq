@@ -143,6 +143,15 @@ public class MixAll {
         return 0;
     }
 
+    /**
+     * 在将 configTable 序列化JSON持久化到 kvConfig.json 文件
+     * 先将数据写入一个 .tmp 临时文件
+     * 然后读取原文件的内容，写入一个 .bak 备份文件
+     * 最后删除原文件，将 .tmp 文件名称改为原名称
+     * @param str
+     * @param fileName
+     * @throws IOException
+     */
     public static void string2File(final String str, final String fileName) throws IOException {
 
         String tmpFile = fileName + ".tmp";

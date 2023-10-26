@@ -295,7 +295,7 @@ public class CommitLog {
 
     /**
      * check the message and returns the message size
-     *
+     * 按写入的顺序读取出一条完整的消息来，如果读出来的魔数是 BLANK_MAGIC_CODE，说明读取到文件的末尾了，返回的消息大小就是 0
      * @return 0 Come the end of the file // >0 Normal messages // -1 Message checksum failure
      */
     public DispatchRequest checkMessageAndReturnSize(java.nio.ByteBuffer byteBuffer, final boolean checkCRC,
@@ -423,20 +423,19 @@ public class CommitLog {
                     totalSize, readLength, bodyLen, topicLen, propertiesLength);
                 return new DispatchRequest(totalSize, false/* success */);
             }
-
             return new DispatchRequest(
-                topic,
-                queueId,
-                physicOffset,
-                totalSize,
-                tagsCode,
-                storeTimestamp,
-                queueOffset,
-                keys,
-                uniqKey,
-                sysFlag,
-                preparedTransactionOffset,
-                propertiesMap
+                    topic, // 主题
+                    queueId, // 队列ID
+                    physicOffset, // 物理偏移量
+                    totalSize, // 消息总大小
+                    tagsCode, //tag
+                    storeTimestamp, // 消息存储时间
+                    queueOffset, // 队列偏移量
+                    keys, // properties 中的 KEYS，用来表示消息的唯一性
+                    uniqKey, // properties 中的 UNIQ_KEY，用来表示消息的唯一性
+                    sysFlag, // 系统标识
+                    preparedTransactionOffset, // 事务偏移量
+                    propertiesMap // 属性
             );
         } catch (Exception e) {
         }
@@ -643,11 +642,9 @@ public class CommitLog {
         String topic = msg.getTopic();
 //        int queueId msg.getQueueId();
         final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
-        // 2. 如果是非事务消息，或者是事务提交消息，判断是否是是否是延迟消息，如果是延迟消息则设置延迟相关信息
-        if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE
-                || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
-            // Delay Delivery
-            // 如果延迟级别>0，说明是延迟消息
+        // 2. 如果是非事务消息，或者是事务提交消息，判断是否是延迟消息，如果是延迟消息则设置延迟相关信息
+        if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
+            // 如果延迟级别 >0，说明是延迟消息
             if (msg.getDelayTimeLevel() > 0) {
                 // 如果大于最大的延迟级别，则取最大的延迟级别
                 if (msg.getDelayTimeLevel() > this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel()) {
@@ -659,7 +656,6 @@ public class CommitLog {
                 // 延迟topic的queueId：延迟级别-1
                 int queueId = ScheduleMessageService.delayLevel2QueueId(msg.getDelayTimeLevel());
 
-                // Backup real topic, queueId
                 // 消息属性中设置真实的QueueId
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_TOPIC, msg.getTopic());
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msg.getQueueId()));
@@ -721,7 +717,7 @@ public class CommitLog {
                 return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null));
             }
 
-            // 4. 将消息保存的mappedFile中
+            // 4. ⭐️⭐️⭐️⭐️⭐️将消息保存的mappedFile中
             result = mappedFile.appendMessage(msg, this.appendMessageCallback, putMessageContext);
             // 5. 处理消息保存结果
             switch (result.getStatus()) {
@@ -730,7 +726,6 @@ public class CommitLog {
                 // mappedFile满了，重新创建mappedFile后再写入消息
                 case END_OF_FILE:
                     unlockMappedFile = mappedFile;
-                    // Create a new file, re-write the message
                     // 创建一个新的文件，然后重新写入
                     mappedFile = this.mappedFileQueue.getLastMappedFile(0);
                     if (null == mappedFile) {
@@ -773,7 +768,7 @@ public class CommitLog {
 
         // 1. 提交刷盘请求
         CompletableFuture<PutMessageStatus> flushResultFuture = submitFlushRequest(result, msg);
-        // 2. 提交复制请求
+        // 2. 提交给Slave同步(同步和异步两种)
         CompletableFuture<PutMessageStatus> replicaResultFuture = submitReplicaRequest(result, msg);
         // 3. 合并提交刷盘请求和提交复制请求结果
         return flushResultFuture.thenCombine(replicaResultFuture, (flushStatus, replicaStatus) -> {
@@ -897,8 +892,13 @@ public class CommitLog {
 
     }
 
+    /**
+     * commitLog 刷盘
+     * @param result
+     * @param messageExt
+     * @return
+     */
     public CompletableFuture<PutMessageStatus> submitFlushRequest(AppendMessageResult result, MessageExt messageExt) {
-        // Synchronization flush
         // 同步刷盘
         if (FlushDiskType.SYNC_FLUSH == this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
             // 获取同步刷盘Service
@@ -917,7 +917,6 @@ public class CommitLog {
                 return CompletableFuture.completedFuture(PutMessageStatus.PUT_OK);
             }
         }
-        // Asynchronous flush
         // 异步刷盘
         else {
             // 是否启动了堆外缓存
@@ -933,17 +932,16 @@ public class CommitLog {
     }
 
     public CompletableFuture<PutMessageStatus> submitReplicaRequest(AppendMessageResult result, MessageExt messageExt) {
+        //默认的是BrokerRole.ASYNC_MASTER 所以也是异步的方式
         if (BrokerRole.SYNC_MASTER == this.defaultMessageStore.getMessageStoreConfig().getBrokerRole()) {
             HAService service = this.defaultMessageStore.getHaService();
             if (messageExt.isWaitStoreMsgOK()) {
                 if (service.isSlaveOK(result.getWroteBytes() + result.getWroteOffset())) {
-                    GroupCommitRequest request = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes(),
-                            this.defaultMessageStore.getMessageStoreConfig().getSlaveTimeout());
+                    GroupCommitRequest request = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes(), this.defaultMessageStore.getMessageStoreConfig().getSlaveTimeout());
                     service.putRequest(request);
                     service.getWaitNotifyObject().wakeupAll();
                     return request.future();
-                }
-                else {
+                } else {
                     return CompletableFuture.completedFuture(PutMessageStatus.SLAVE_NOT_AVAILABLE);
                 }
             }
@@ -1420,20 +1418,22 @@ public class CommitLog {
             // 2. 判断空间是否足够，如果剩余空间不足，则保存TOTAL+MAGICCODE之后，返回BLANK_MAGIC_CODE
             if ((msgLen + END_FILE_MIN_BLANK_LENGTH) > maxBlank) {
                 this.msgStoreItemMemory.clear();
-                // 1 TOTALSIZE
                 // 1 TOTALSIZE 写消息总长度
                 this.msgStoreItemMemory.putInt(maxBlank);
-                // 2 MAGICCODE
                 // 2 MAGICCODE 写魔数
                 this.msgStoreItemMemory.putInt(CommitLog.BLANK_MAGIC_CODE);
                 // 3 The remaining space may be any value
                 // Here the length of the specially set maxBlank
                 final long beginTimeMills = CommitLog.this.defaultMessageStore.now();
                 byteBuffer.put(this.msgStoreItemMemory.array(), 0, 8);
-                return new AppendMessageResult(AppendMessageStatus.END_OF_FILE, wroteOffset,
+                return new AppendMessageResult(
+                        AppendMessageStatus.END_OF_FILE,
+                        wroteOffset,
                         maxBlank, /* only wrote 8 bytes, but declare wrote maxBlank for compute write position */
-                        msgIdSupplier, msgInner.getStoreTimestamp(),
-                        queueOffset, CommitLog.this.defaultMessageStore.now() - beginTimeMills);
+                        msgIdSupplier,
+                        msgInner.getStoreTimestamp(),
+                        queueOffset,
+                        CommitLog.this.defaultMessageStore.now() - beginTimeMills);
             }
 
             int pos = 4/*totalSize*/ + 4/*magicCode*/ + 4/*bodyCRC*/ + 4/*queueId*/ + 4/*flag*/;

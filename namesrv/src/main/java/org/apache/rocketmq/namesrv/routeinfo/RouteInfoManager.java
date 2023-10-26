@@ -50,9 +50,13 @@ import org.apache.rocketmq.common.protocol.route.TopicRouteData;
 import org.apache.rocketmq.common.sysflag.TopicSysFlag;
 import org.apache.rocketmq.remoting.common.RemotingUtil;
 
+/**
+ * 路由管理器
+ */
 public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
+    // 针对 Broker、Topic 增删改查的读写锁
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     // 保存Topic和队列信息，也叫路由信息
     private final HashMap<String/* topic */, Map<String /* brokerName */ , QueueData>> topicQueueTable;
@@ -140,6 +144,27 @@ public class RouteInfoManager {
         return topicList;
     }
 
+    /**
+     * Broker 注册的核心逻辑如下：
+     *
+     * 向集群关系表 clusterAddrTable 添加 Broker 组名；
+     * 从Broker表 brokerAddrTable 获取或创建Broker组 BrokerData；
+     * 遍历Broker组里的Broker表，如果Broker地址一样，但ID不一样，可能是由于从主切换重新注册，因此需要先移除旧的Broker；
+     * 把Broker添加到Broker组里；
+     * 如果当前是注册的 Master Broker(brokerId=0)，且是第一次注册或版本发生变更，就创建或更新当前Broker组的消息队列配置。
+     * 接着创建了NameServer与Broker间的连接保活 BrokerLiveInfo 信息；
+     * 接着添加或更新 FilterServer 列表；
+     * 最后，如果是 Slave Broker，返回 Master Broker 的地址和HA地址；
+     * @param clusterName broker 集群名称
+     * @param brokerAddr broker 机器地址
+     * @param brokerName broker 组名称
+     * @param brokerId 当前 broker 唯一ID
+     * @param haServerAddr HA 地址
+     * @param topicConfigWrapper topic 配置
+     * @param filterServerList FilterServer
+     * @param channel 网络长连接通道
+     * @return
+     */
     public RegisterBrokerResult registerBroker(
             final String clusterName,
             final String brokerAddr,
@@ -332,6 +357,21 @@ public class RouteInfoManager {
         return topicCnt;
     }
 
+    /**
+     * Broker 下线的逻辑
+     *
+     * 从 brokerLiveTable 移除连接保活信息；
+     * 从 filterServerTable 移除 FilterServer 列表；
+     * 从 brokerAddrTable 下的 BrokerData 移除 Broker；
+     * 如果 BrokerData 没有 Broker 了，从 brokerAddrTable 移除 Broker 组；
+     * 如果 Broker 组移除了，从 clusterAddrTable 中移除 Broker 组名；
+     * 如果整个集群下的没有 Broker 组了，从 clusterAddrTable 中移除集群，最后移除 Broker 消息队列。
+     *
+     * @param clusterName 集群名称
+     * @param brokerAddr Broker地址
+     * @param brokerName Broker 组名
+     * @param brokerId Broker ID
+     */
     public void unregisterBroker(
             final String clusterName,
             final String brokerAddr,
@@ -488,6 +528,7 @@ public class RouteInfoManager {
         while (it.hasNext()) {
             Entry<String, BrokerLiveInfo> next = it.next();
             long last = next.getValue().getLastUpdateTimestamp();
+            // 默认超过2min未更新就判断失效，关闭 Channel、移除 Broker
             if ((last + BROKER_CHANNEL_EXPIRED_TIME) < System.currentTimeMillis()) {
                 // 关闭channel
                 RemotingUtil.closeChannel(next.getValue().getChannel());
@@ -755,9 +796,13 @@ public class RouteInfoManager {
 }
 
 class BrokerLiveInfo {
+    // Broker 最近一次的心跳时间
     private long lastUpdateTimestamp;
+    // Broker 数据版本号
     private DataVersion dataVersion;
+    // 与 Broker 间的网络长连接
     private Channel channel;
+    // HA高可用节点地址
     private String haServerAddr;
 
     public BrokerLiveInfo(long lastUpdateTimestamp, DataVersion dataVersion, Channel channel,

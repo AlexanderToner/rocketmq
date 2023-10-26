@@ -44,14 +44,17 @@ public class IndexService {
     private final int indexNum;
     private final String storePath;
     private final ArrayList<IndexFile> indexFileList = new ArrayList<IndexFile>();
+    // 读写锁
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     public IndexService(final DefaultMessageStore store) {
         this.defaultMessageStore = store;
+        // 最大槽位数量（5000000）
         this.hashSlotNum = store.getMessageStoreConfig().getMaxHashSlotNum();
+        // 索引数量（5000000 * 4）
         this.indexNum = store.getMessageStoreConfig().getMaxIndexNum();
-        this.storePath =
-            StorePathConfigHelper.getStorePathIndex(store.getMessageStoreConfig().getStorePathRootDir());
+        // 存储路径 ~/store/index
+        this.storePath = StorePathConfigHelper.getStorePathIndex(store.getMessageStoreConfig().getStorePathRootDir());
     }
 
     public boolean load(final boolean lastExitOK) {
@@ -262,6 +265,7 @@ public class IndexService {
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {
             log.warn("Index file [" + indexFile.getFileName() + "] is full, trying to create another one");
 
+            // 索引文件写满之后会返回 false，就创建一个新的 IndexFile，继续写入
             indexFile = retryGetAndCreateIndexFile();
             if (null == indexFile) {
                 return null;
@@ -304,17 +308,20 @@ public class IndexService {
 
     public IndexFile getAndCreateLastIndexFile() {
         IndexFile indexFile = null;
+        // 上一个索引文件
         IndexFile prevIndexFile = null;
+        // 上一个文件的末尾物理偏移量
         long lastUpdateEndPhyOffset = 0;
+        // 上一个文件的索引更新时间
         long lastUpdateIndexTimestamp = 0;
 
         {
             this.readWriteLock.readLock().lock();
             if (!this.indexFileList.isEmpty()) {
                 IndexFile tmp = this.indexFileList.get(this.indexFileList.size() - 1);
-                if (!tmp.isWriteFull()) {
+                if (!tmp.isWriteFull()) {// 索引文件未写满
                     indexFile = tmp;
-                } else {
+                } else {// 索引文件写满了
                     lastUpdateEndPhyOffset = tmp.getEndPhyOffset();
                     lastUpdateIndexTimestamp = tmp.getEndTimestamp();
                     prevIndexFile = tmp;
@@ -326,12 +333,10 @@ public class IndexService {
 
         if (indexFile == null) {
             try {
-                String fileName =
-                    this.storePath + File.separator
-                        + UtilAll.timeMillisToHumanString(System.currentTimeMillis());
-                indexFile =
-                    new IndexFile(fileName, this.hashSlotNum, this.indexNum, lastUpdateEndPhyOffset,
-                        lastUpdateIndexTimestamp);
+                // 文件路径：${user.home}/store/index/timestamp
+                String fileName = this.storePath + File.separator + UtilAll.timeMillisToHumanString(System.currentTimeMillis());
+                // 创建索引文件
+                indexFile = new IndexFile(fileName, this.hashSlotNum, this.indexNum, lastUpdateEndPhyOffset, lastUpdateIndexTimestamp);
                 this.readWriteLock.writeLock().lock();
                 this.indexFileList.add(indexFile);
             } catch (Exception e) {
@@ -342,11 +347,9 @@ public class IndexService {
 
             if (indexFile != null) {
                 final IndexFile flushThisFile = prevIndexFile;
-                Thread flushThread = new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        IndexService.this.flush(flushThisFile);
-                    }
+                Thread flushThread = new Thread(() -> {
+                    // 刷新上一个索引文件
+                    IndexService.this.flush(flushThisFile);
                 }, "FlushIndexFileThread");
 
                 flushThread.setDaemon(true);

@@ -204,25 +204,22 @@ public class MappedFile extends ReferenceResource {
         return fileChannel;
     }
 
-    public AppendMessageResult appendMessage(final MessageExtBrokerInner msg, final AppendMessageCallback cb,
-            PutMessageContext putMessageContext) {
+    public AppendMessageResult appendMessage(final MessageExtBrokerInner msg, final AppendMessageCallback cb, PutMessageContext putMessageContext) {
         return appendMessagesInner(msg, cb, putMessageContext);
     }
 
-    public AppendMessageResult appendMessages(final MessageExtBatch messageExtBatch, final AppendMessageCallback cb,
-            PutMessageContext putMessageContext) {
+    public AppendMessageResult appendMessages(final MessageExtBatch messageExtBatch, final AppendMessageCallback cb, PutMessageContext putMessageContext) {
         return appendMessagesInner(messageExtBatch, cb, putMessageContext);
     }
 
-    public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb,
-            PutMessageContext putMessageContext) {
+    public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb, PutMessageContext putMessageContext) {
         assert messageExt != null;
         assert cb != null;
 
         // 获取当前写文件位置
         int currentPos = this.wrotePosition.get();
 
-        // 如果写文件位置小于文件size
+        // 当前偏移量和文件大小做比较,如果写文件位置小于文件size
         if (currentPos < this.fileSize) {
             // 如果writeBuffer不空，则获取writeBuffer的浅拷贝，否则获取MappedFile的内存映射(MappedByteBuffer)的浅拷贝
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
@@ -230,11 +227,10 @@ public class MappedFile extends ReferenceResource {
             AppendMessageResult result;
             // 如果是单条消息
             if (messageExt instanceof MessageExtBrokerInner) {
-                result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos,
-                        (MessageExtBrokerInner) messageExt, putMessageContext);
+                // 在 CommitLog 类 AppendMessageCallback 中有一个 的内部类的实现 DefaultAppendMessageCallback
+                result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBrokerInner) messageExt, putMessageContext);
             } else if (messageExt instanceof MessageExtBatch) {
-                result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos,
-                        (MessageExtBatch) messageExt, putMessageContext);
+                result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBatch) messageExt, putMessageContext);
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }

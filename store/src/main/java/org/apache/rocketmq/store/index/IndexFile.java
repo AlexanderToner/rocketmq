@@ -30,22 +30,29 @@ public class IndexFile {
     private static int hashSlotSize = 4;
     private static int indexSize = 20;
     private static int invalidIndex = 0;
+    // hash 槽位数量
     private final int hashSlotNum;
+    // 索引数量
     private final int indexNum;
+    // 一个索引文件映射一个 MappedFile
     private final MappedFile mappedFile;
+    // 内存映射区域
     private final MappedByteBuffer mappedByteBuffer;
+    // 索引头
     private final IndexHeader indexHeader;
 
     public IndexFile(final String fileName, final int hashSlotNum, final int indexNum,
         final long endPhyOffset, final long endTimestamp) throws IOException {
-        int fileTotalSize =
-            IndexHeader.INDEX_HEADER_SIZE + (hashSlotNum * hashSlotSize) + (indexNum * indexSize);
+        // 文件大小
+        int fileTotalSize = IndexHeader.INDEX_HEADER_SIZE + (hashSlotNum * hashSlotSize) + (indexNum * indexSize);
+        // 创建内存映射文件
         this.mappedFile = new MappedFile(fileName, fileTotalSize);
         this.mappedByteBuffer = this.mappedFile.getMappedByteBuffer();
         this.hashSlotNum = hashSlotNum;
         this.indexNum = indexNum;
 
         ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
+        // 文件头
         this.indexHeader = new IndexHeader(byteBuffer);
 
         if (endPhyOffset > 0) {
@@ -114,9 +121,7 @@ public class IndexFile {
                     timeDiff = 0;
                 }
 
-                int absIndexPos =
-                    IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize/*哈希槽数量*哈希槽大小=500w*4*/
-                        + this.indexHeader.getIndexCount() * indexSize;
+                int absIndexPos = IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize/*哈希槽数量*哈希槽大小=500w*4*/ + this.indexHeader.getIndexCount() * indexSize;
 
                 // 更新IndexFile索引单元信息
                 // keyHash(4)+消息在commitLog中的偏移量(8)+消息存储时间-索引文件开始存储时间(4)+前置消息索引值(4)
@@ -128,16 +133,19 @@ public class IndexFile {
                 // 更新slots的indexCount
                 this.mappedByteBuffer.putInt(absSlotPos/*hash槽的绝对位置*/, this.indexHeader.getIndexCount());
 
+                // 第一个索引，写入开始时的偏移量，和开始存储的时间
                 if (this.indexHeader.getIndexCount() <= 1) {
                     this.indexHeader.setBeginPhyOffset(phyOffset);
                     this.indexHeader.setBeginTimestamp(storeTimestamp);
                 }
 
+                // hash slot 没有值，表明是拿了一个新的哈希槽，所以已使用的哈希槽数量自增。
                 if (invalidIndex == slotValue) {
                     this.indexHeader.incHashSlotCount();
                 }
-                // 更新IndexHeader信息
+                // 索引数量自增
                 this.indexHeader.incIndexCount();
+                // 更新结束偏移量和时间
                 this.indexHeader.setEndPhyOffset(phyOffset);
                 this.indexHeader.setEndTimestamp(storeTimestamp);
 

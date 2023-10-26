@@ -162,31 +162,32 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
         return response;
     }
 
-    protected RemotingCommand msgCheck(final ChannelHandlerContext ctx,
-        final SendMessageRequestHeader requestHeader, final RemotingCommand response) {
+    protected RemotingCommand msgCheck(final ChannelHandlerContext ctx, final SendMessageRequestHeader requestHeader, final RemotingCommand response) {
         if (!PermName.isWriteable(this.brokerController.getBrokerConfig().getBrokerPermission())
             && this.brokerController.getTopicConfigManager().isOrderTopic(requestHeader.getTopic())) {
             response.setCode(ResponseCode.NO_PERMISSION);
-            response.setRemark("the broker[" + this.brokerController.getBrokerConfig().getBrokerIP1()
-                + "] sending message is forbidden");
+            response.setRemark("the broker[" + this.brokerController.getBrokerConfig().getBrokerIP1() + "] sending message is forbidden");
             return response;
         }
 
+        // topic 名称校验
         if (!TopicValidator.validateTopic(requestHeader.getTopic(), response)) {
             return response;
         }
+        // topic 类型校验
         if (TopicValidator.isNotAllowedSendTopic(requestHeader.getTopic(), response)) {
             return response;
         }
 
-        TopicConfig topicConfig =
-            this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
+        TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
             int topicSysFlag = 0;
             if (requestHeader.isUnitMode()) {
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
+                    // topicSysFlag = 2
                     topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
                 } else {
+                    // topicSysFlag = 1
                     topicSysFlag = TopicSysFlag.buildSysFlag(true, false);
                 }
             }
@@ -200,17 +201,14 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
 
             if (null == topicConfig) {
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
-                    topicConfig =
-                        this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
-                            requestHeader.getTopic(), 1, PermName.PERM_WRITE | PermName.PERM_READ,
-                            topicSysFlag);
+                    topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
+                            requestHeader.getTopic(), 1, PermName.PERM_WRITE | PermName.PERM_READ, topicSysFlag);
                 }
             }
 
             if (null == topicConfig) {
                 response.setCode(ResponseCode.TOPIC_NOT_EXIST);
-                response.setRemark("topic[" + requestHeader.getTopic() + "] not exist, apply first please!"
-                    + FAQUrl.suggestTodo(FAQUrl.APPLY_TOPIC_URL));
+                response.setRemark("topic[" + requestHeader.getTopic() + "] not exist, apply first please!" + FAQUrl.suggestTodo(FAQUrl.APPLY_TOPIC_URL));
                 return response;
             }
         }
@@ -219,10 +217,7 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
         int idValid = Math.max(topicConfig.getWriteQueueNums(), topicConfig.getReadQueueNums());
         if (queueIdInt >= idValid) {
             String errorInfo = String.format("request queueId[%d] is illegal, %s Producer: %s",
-                queueIdInt,
-                topicConfig,
-                RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
-
+                queueIdInt, topicConfig, RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
             log.warn(errorInfo);
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark(errorInfo);

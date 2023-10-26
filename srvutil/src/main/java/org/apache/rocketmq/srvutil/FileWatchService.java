@@ -32,13 +32,21 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+/**
+ * 来监听 SSL 证书文件的变化，如果文件发生变更，则热重载 SSL 配置
+ */
 public class FileWatchService extends ServiceThread {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.COMMON_LOGGER_NAME);
 
+    // 监听的文件路径
     private final List<String> watchFiles;
+    // 文件当前hash值
     private final List<String> fileCurrentHash;
+    // 监听器
     private final Listener listener;
+    // 观测变化的间隔时间
     private static final int WATCH_INTERVAL = 500;
+    // MD5 消息摘要
     private MessageDigest md = MessageDigest.getInstance("MD5");
 
     public FileWatchService(final String[] watchFiles,
@@ -47,6 +55,7 @@ public class FileWatchService extends ServiceThread {
         this.watchFiles = new ArrayList<>();
         this.fileCurrentHash = new ArrayList<>();
 
+        // 遍历要监听的文件，计算每个文件的hash值并放到内存表中
         for (int i = 0; i < watchFiles.length; i++) {
             if (StringUtils.isNotEmpty(watchFiles[i]) && new File(watchFiles[i]).exists()) {
                 this.watchFiles.add(watchFiles[i]);
@@ -64,10 +73,12 @@ public class FileWatchService extends ServiceThread {
     public void run() {
         log.info(this.getServiceName() + " service started");
 
+        // 通过 stopped 标识来暂停业务执行
         while (!this.isStopped()) {
             try {
+                // 等待 500 毫秒
                 this.waitForRunning(WATCH_INTERVAL);
-
+                // 遍历每个文件，判断文件hash值是否变更
                 for (int i = 0; i < watchFiles.size(); i++) {
                     String newHash;
                     try {
@@ -76,8 +87,11 @@ public class FileWatchService extends ServiceThread {
                         log.warn(this.getServiceName() + " service has exception when calculate the file hash. ", ignored);
                         continue;
                     }
+                    // 对比hash
                     if (!newHash.equals(fileCurrentHash.get(i))) {
+                        // 更新文件hash值
                         fileCurrentHash.set(i, newHash);
+                        // 触发文件变更事件
                         listener.onChanged(watchFiles.get(i));
                     }
                 }
@@ -88,6 +102,7 @@ public class FileWatchService extends ServiceThread {
         log.info(this.getServiceName() + " service end");
     }
 
+    // 计算文件的hash值
     private String hash(String filePath) throws IOException {
         Path path = Paths.get(filePath);
         md.update(Files.readAllBytes(path));
@@ -95,6 +110,7 @@ public class FileWatchService extends ServiceThread {
         return UtilAll.bytes2string(hash);
     }
 
+    // 文件变更监听器
     public interface Listener {
         /**
          * Will be called when the target files are changed

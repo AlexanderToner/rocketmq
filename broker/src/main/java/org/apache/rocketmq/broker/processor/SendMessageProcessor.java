@@ -62,6 +62,9 @@ import org.apache.rocketmq.store.config.MessageStoreConfig;
 import org.apache.rocketmq.store.config.StorePathConfigHelper;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
+/**
+ * 处理处理生产者发送的MQ消息数据
+ */
 public class SendMessageProcessor extends AbstractSendMessageProcessor implements NettyRequestProcessor {
 
     private List<ConsumeMessageHook> consumeMessageHookList;
@@ -70,9 +73,15 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         super(brokerController);
     }
 
+    /**
+     *
+     * @param ctx netty的相关参数
+     * @param request 类型RemotingCommand，这个是RocketMQ的消息协议的抽象
+     * @return
+     * @throws RemotingCommandException
+     */
     @Override
-    public RemotingCommand processRequest(ChannelHandlerContext ctx,
-                                          RemotingCommand request) throws RemotingCommandException {
+    public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         RemotingCommand response = null;
         try {
             response = asyncProcessRequest(ctx, request).get();
@@ -87,10 +96,10 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         asyncProcessRequest(ctx, request).thenAcceptAsync(responseCallback::callback, this.brokerController.getPutMessageFutureExecutor());
     }
 
-    public CompletableFuture<RemotingCommand> asyncProcessRequest(ChannelHandlerContext ctx,
-                                                                  RemotingCommand request) throws RemotingCommandException {
+    public CompletableFuture<RemotingCommand> asyncProcessRequest(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
         final SendMessageContext mqtraceContext;
         switch (request.getCode()) {
+            // 这个分支是消费失败将消息重新发回Broker才会走
             case RequestCode.CONSUMER_SEND_MSG_BACK:
                 return this.asyncConsumerSendMsgBack(ctx, request);
             default:
@@ -99,10 +108,13 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                     return CompletableFuture.completedFuture(null);
                 }
                 mqtraceContext = buildMsgContext(ctx, requestHeader);
+                // SendMessageHook 接口的处理
                 this.executeSendMessageHookBefore(ctx, request, mqtraceContext);
                 if (requestHeader.isBatch()) {
+                    // 批量消息处理
                     return this.asyncSendBatchMessage(ctx, request, mqtraceContext, requestHeader);
                 } else {
+                    // 单个消息处理
                     return this.asyncSendMessage(ctx, request, mqtraceContext, requestHeader);
                 }
         }
@@ -267,6 +279,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
     private CompletableFuture<RemotingCommand> asyncSendMessage(ChannelHandlerContext ctx, RemotingCommand request,
                                                                 SendMessageContext mqtraceContext,
                                                                 SendMessageRequestHeader requestHeader) {
+        // 数据进行处理和一些前期的校验,包含 topic 的创建
         final RemotingCommand response = preSend(ctx, request, requestHeader);
         final SendMessageResponseHeader responseHeader = (SendMessageResponseHeader)response.readCustomHeader();
 
@@ -314,16 +327,17 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         CompletableFuture<PutMessageResult> putMessageResult = null;
         String transFlag = origProps.get(MessageConst.PROPERTY_TRANSACTION_PREPARED);
+        // 是否是事务消息
         if (Boolean.parseBoolean(transFlag)) {
             if (this.brokerController.getBrokerConfig().isRejectTransactionMessage()) {
                 response.setCode(ResponseCode.NO_PERMISSION);
-                response.setRemark(
-                        "the broker[" + this.brokerController.getBrokerConfig().getBrokerIP1()
-                                + "] sending transaction message is forbidden");
+                response.setRemark( "the broker[" + this.brokerController.getBrokerConfig().getBrokerIP1() + "] sending transaction message is forbidden");
                 return CompletableFuture.completedFuture(response);
             }
             putMessageResult = this.brokerController.getTransactionalMessageService().asyncPrepareMessage(msgInner);
         } else {
+            // 普通类型消息
+            // 存储通过调用 MessageStore.asyncPutMessage 方法，而 MessageStore 的实现为 DefaultMessageStore
             putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
         }
         return handlePutMessageResultFuture(putMessageResult, response, request, msgInner, responseHeader, mqtraceContext, ctx, queueIdInt);

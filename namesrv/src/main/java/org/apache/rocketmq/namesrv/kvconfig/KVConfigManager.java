@@ -29,14 +29,18 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.common.protocol.body.KVTable;
 import org.apache.rocketmq.namesrv.NamesrvController;
 
+/**
+ * KV 键值对配置管理器
+ */
 public class KVConfigManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
 
     private final NamesrvController namesrvController;
 
+    // 读写锁
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private final HashMap<String/* Namespace */, HashMap<String/* Key */, String/* Value */>> configTable =
-        new HashMap<String, HashMap<String, String>>();
+    // 存放KV配置
+    private final HashMap<String/* Namespace */, HashMap<String/* Key */, String/* Value */>> configTable = new HashMap<String, HashMap<String, String>>();
 
     public KVConfigManager(NamesrvController namesrvController) {
         this.namesrvController = namesrvController;
@@ -45,10 +49,12 @@ public class KVConfigManager {
     public void load() {
         String content = null;
         try {
+            // 读取 ${user.home}/namesrv/kvConfig.json 配置文件中的内容
             content = MixAll.file2String(this.namesrvController.getNamesrvConfig().getKvConfigPath());
         } catch (IOException e) {
             log.warn("Load KV config table exception", e);
         }
+        // 从KV配置文件解析到本地内存
         if (content != null) {
             KVConfigSerializeWrapper kvConfigSerializeWrapper =
                 KVConfigSerializeWrapper.fromJson(content, KVConfigSerializeWrapper.class);
@@ -154,6 +160,7 @@ public class KVConfigManager {
 
     public String getKVConfig(final String namespace, final String key) {
         try {
+            // 加读锁
             this.lock.readLock().lockInterruptibly();
             try {
                 HashMap<String, String> kvTable = this.configTable.get(namespace);
@@ -161,6 +168,7 @@ public class KVConfigManager {
                     return kvTable.get(key);
                 }
             } finally {
+                // 释放读锁
                 this.lock.readLock().unlock();
             }
         } catch (InterruptedException e) {
