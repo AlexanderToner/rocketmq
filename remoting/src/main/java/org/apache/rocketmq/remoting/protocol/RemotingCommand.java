@@ -35,6 +35,10 @@ import org.apache.rocketmq.remoting.exception.RemotingCommandException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
+/**
+ * RocketMQ 请求、响应的对象载体，
+ * 可以理解成是 RocketMQ 定义的网络通信协议
+ */
 public class RemotingCommand {
     public static final String SERIALIZE_TYPE_PROPERTY = "rocketmq.serialize.type";
     public static final String SERIALIZE_TYPE_ENV = "ROCKETMQ_SERIALIZE_TYPE";
@@ -73,17 +77,22 @@ public class RemotingCommand {
         }
     }
 
+    //RocketMQ 中每个请求都会有一个对应的编码，请求码的枚举定义在 RequestCode 中
     private int code;
     private LanguageCode language = LanguageCode.JAVA;
     private int version = 0;
+    //每个请求的ID，通过内存的一个原子计数器 requestId 自增
     private int opaque = requestId.getAndIncrement();
+    //类型标识，有 请求、响应、Oneway 三种类型
     private int flag = 0;
     private String remark;
+    //扩展字段
     private HashMap<String, String> extFields;
     private transient CommandCustomHeader customHeader;
 
     private SerializeType serializeTypeCurrentRPC = serializeTypeConfigInThisServer;
 
+    //请求主体数据的字节数组
     private transient byte[] body;
 
     protected RemotingCommand() {

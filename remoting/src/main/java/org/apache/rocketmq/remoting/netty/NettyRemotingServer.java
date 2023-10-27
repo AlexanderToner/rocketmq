@@ -66,15 +66,21 @@ import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
 public class NettyRemotingServer extends NettyRemotingAbstract implements RemotingServer {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(RemotingHelper.ROCKETMQ_REMOTING);
+    // Netty网络服务器（服务端启动类）
     private final ServerBootstrap serverBootstrap;
+    // 负责和客户端建立网络连接的线程组
     private final EventLoopGroup eventLoopGroupSelector;
+    // 负责处理网络IO请求读取和处理的线程组
     private final EventLoopGroup eventLoopGroupBoss;
+    // Netty Server 配置
     private final NettyServerConfig nettyServerConfig;
-
+    // 业务公共线程池
     private final ExecutorService publicExecutor;
+    // 通道事件监听器
     private final ChannelEventListener channelEventListener;
-
+    // 定时任务
     private final Timer timer = new Timer("ServerHouseKeepingService", true);
+    // 默认执行器线程组
     private DefaultEventExecutorGroup defaultEventExecutorGroup;
 
 
@@ -84,10 +90,13 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     private static final String TLS_HANDLER_NAME = "sslHandler";
     private static final String FILE_REGION_ENCODER_NAME = "fileRegionEncoder";
 
-    // sharable handlers
+    // TCP 握手处理器
     private HandshakeHandler handshakeHandler;
+    // 编码器
     private NettyEncoder encoder;
+    // 连接管理器
     private NettyConnectManageHandler connectionManageHandler;
+    // Netty 服务端处理器
     private NettyServerHandler serverHandler;
 
     public NettyRemotingServer(final NettyServerConfig nettyServerConfig) {
@@ -96,16 +105,22 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
     public NettyRemotingServer(final NettyServerConfig nettyServerConfig,
         final ChannelEventListener channelEventListener) {
+        // OneWay 和异步请求 的请求信号量限制，默认为 256、64
         super(nettyServerConfig.getServerOnewaySemaphoreValue(), nettyServerConfig.getServerAsyncSemaphoreValue());
+        // Netty Server 启动类
         this.serverBootstrap = new ServerBootstrap();
+        // Netty 配置
         this.nettyServerConfig = nettyServerConfig;
+        // 通道事件监听器
         this.channelEventListener = channelEventListener;
 
+        // Netty 公共线程池线程数，默认为 0
         int publicThreadNums = nettyServerConfig.getServerCallbackExecutorThreads();
         if (publicThreadNums <= 0) {
             publicThreadNums = 4;
         }
 
+        // 公共线程池，用于执行回调
         this.publicExecutor = Executors.newFixedThreadPool(publicThreadNums, new ThreadFactory() {
             private AtomicInteger threadIndex = new AtomicInteger(0);
 
@@ -115,7 +130,9 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
             }
         });
 
+        // Linux 平台下使用 epoll
         if (useEpoll()) {
+            // boss group：负责和客户端建立网络连接的线程组，只有一个线程
             this.eventLoopGroupBoss = new EpollEventLoopGroup(1, new ThreadFactory() {
                 private AtomicInteger threadIndex = new AtomicInteger(0);
 
@@ -125,6 +142,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                 }
             });
 
+            // worker group：负责处理网络IO请求读取和处理的线程组，默认是3个线程
             this.eventLoopGroupSelector = new EpollEventLoopGroup(nettyServerConfig.getServerSelectorThreads(), new ThreadFactory() {
                 private AtomicInteger threadIndex = new AtomicInteger(0);
                 private int threadTotal = nettyServerConfig.getServerSelectorThreads();
@@ -155,6 +173,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
             });
         }
 
+        // 加载 SSL 配置
         loadSslContext();
     }
 
@@ -303,6 +322,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     @Override
     public void registerProcessor(int requestCode, NettyRequestProcessor processor, ExecutorService executor) {
         ExecutorService executorThis = executor;
+        // 线程池为 null，则默认用公共线程池
         if (null == executor) {
             executorThis = this.publicExecutor;
         }
