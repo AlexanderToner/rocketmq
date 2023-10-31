@@ -59,7 +59,9 @@ public class CommitLog {
     protected static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     // End of file empty MAGIC CODE cbd43194
     protected final static int BLANK_MAGIC_CODE = -875286124;
+    // mappedFileQueue映射文件队列
     protected final MappedFileQueue mappedFileQueue;
+    // 中介者模式依赖消息存储组件
     protected final DefaultMessageStore defaultMessageStore;
     // 如果是同步刷盘，则是GroupCommitService。如果是异步刷盘则是FlushRealTimeService
     // 默认是异步刷盘，因此是CommitLog$FlushRealTimeService
@@ -68,31 +70,38 @@ public class CommitLog {
     //If TransientStorePool enabled, we must flush message to FileChannel at fixed periods
     // 开启TransientStorePoolEnable时使用CommitRealTimeService
     private final FlushCommitLogService commitLogService;
-
+    // 追加消息回调函数
     private final AppendMessageCallback appendMessageCallback;
     private final ThreadLocal<PutMessageThreadLocal> putMessageThreadLocal;
+    //消息队列偏移量表
     protected HashMap<String/* topic-queueid */, Long/* offset */> topicQueueTable = new HashMap<String, Long>(1024);
     protected Map<String/* topic-queueid */, Long/* offset */> lmqTopicQueueTable = new ConcurrentHashMap<>(1024);
+    // 确认偏移量
     protected volatile long confirmOffset = -1L;
-
+    // 锁开始时间
     private volatile long beginTimeInLock = 0;
-
+    // 写入消息锁
     protected final PutMessageLock putMessageLock;
-
+    // 完整存储路径表
     private volatile Set<String> fullStorePaths = Collections.emptySet();
-
+    // 多路分发组件
     protected final MultiDispatch multiDispatch;
+    // 刷磁盘的监视器
     private final FlushDiskWatcher flushDiskWatcher;
 
     public CommitLog(final DefaultMessageStore defaultMessageStore) {
+        // CommitLog 存储路径，默认在 ${storePathRootDir}/commitlog
         String storePath = defaultMessageStore.getMessageStoreConfig().getStorePathCommitLog();
         if (storePath.contains(MessageStoreConfig.MULTI_PATH_SPLITTER)) {
-            this.mappedFileQueue = new MultiPathMappedFileQueue(defaultMessageStore.getMessageStoreConfig(),
-                    defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog(),
-                    defaultMessageStore.getAllocateMappedFileService(), this::getFullStorePaths);
+            this.mappedFileQueue = new MultiPathMappedFileQueue(defaultMessageStore.getMessageStoreConfig(), defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog(), defaultMessageStore.getAllocateMappedFileService(), this::getFullStorePaths);
         } else {
-            this.mappedFileQueue = new MappedFileQueue(storePath,
+            // 将磁盘中的 CommitLog 做 MappedFile 内存映射
+            this.mappedFileQueue = new MappedFileQueue(
+                    // /commitlog 目录
+                    storePath,
+                    // commitlog 文件大小默认为 1GB
                     defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog(),
+                    // AllocateMappedFileService
                     defaultMessageStore.getAllocateMappedFileService());
         }
 
@@ -109,12 +118,7 @@ public class CommitLog {
 
         // 消息回调
         this.appendMessageCallback = new DefaultAppendMessageCallback();
-        putMessageThreadLocal = new ThreadLocal<PutMessageThreadLocal>() {
-            @Override
-            protected PutMessageThreadLocal initialValue() {
-                return new PutMessageThreadLocal(defaultMessageStore.getMessageStoreConfig().getMaxMessageSize());
-            }
-        };
+        putMessageThreadLocal = ThreadLocal.withInitial(() -> new PutMessageThreadLocal(defaultMessageStore.getMessageStoreConfig().getMaxMessageSize()));
         this.putMessageLock = defaultMessageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage() ? new PutMessageReentrantLock() : new PutMessageSpinLock();
 
         this.multiDispatch = new MultiDispatch(defaultMessageStore, this);
@@ -143,6 +147,7 @@ public class CommitLog {
     public void start() {
         this.flushCommitLogService.start();
 
+        // 刷盘监控组件，守护线程
         flushDiskWatcher.setDaemon(true);
         flushDiskWatcher.start();
 
@@ -624,6 +629,8 @@ public class CommitLog {
     /**
      * 保存消息
      * 1.消息预处理阶段
+     *      - 设置消息存储时间戳、设置消息体 crc32 校验和，避免消息篡改
+     *      - 设置消息来源服务器以及存储服务器的 IPv6 地址标识
      * 2.消息保存阶段
      * 3.消息保存结果处理阶段
      * @param msg
@@ -667,6 +674,7 @@ public class CommitLog {
             }
         }
 
+        // 消息诞生机器 IPv6 地址标识
         InetSocketAddress bornSocketAddress = (InetSocketAddress) msg.getBornHost();
         // 3. 设置ip并构建存储消息上下文信息
         if (bornSocketAddress.getAddress() instanceof Inet6Address) {
@@ -674,18 +682,21 @@ public class CommitLog {
             msg.setBornHostV6Flag();
         }
 
+        // 消息存储机器 IPv6 地址标识
         InetSocketAddress storeSocketAddress = (InetSocketAddress) msg.getStoreHost();
         if (storeSocketAddress.getAddress() instanceof Inet6Address) {
             // 如果如果broker的ip是IpV6，则设置BrokerIpV6 flag
             msg.setStoreHostAddressV6Flag();
         }
 
+        // 获取线程副本中的消息编码器对消息编码
         PutMessageThreadLocal putMessageThreadLocal = this.putMessageThreadLocal.get();
         if (!multiDispatch.isMultiDispatchMsg(msg)) {
             PutMessageResult encodeResult = putMessageThreadLocal.getEncoder().encode(msg);
             if (encodeResult != null) {
                 return CompletableFuture.completedFuture(encodeResult);
             }
+            // 设置消息编码后的 ByteBuffer
             msg.setEncodedBuff(putMessageThreadLocal.getEncoder().getEncoderBuffer());
         }
         // 构建存消息上下文
@@ -708,6 +719,7 @@ public class CommitLog {
 
             // 3. 如果获取到的mappedFile是null说明之前没有存储消息；如果mappedFile满了，说明需要创建一个新的MappedFile
             if (null == mappedFile || mappedFile.isFull()) {
+                // 第一个文件的起始偏移量就是 0，参数 startOffset 起始偏移量
                 mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
             }
             // 如果创建mappedFile失败，则返回异常信息
@@ -717,7 +729,7 @@ public class CommitLog {
                 return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null));
             }
 
-            // 4. ⭐️⭐️⭐️⭐️⭐️将消息保存的mappedFile中
+            // 4. ⭐️⭐️⭐️⭐️⭐️向 MappedFile 追加消息
             result = mappedFile.appendMessage(msg, this.appendMessageCallback, putMessageContext);
             // 5. 处理消息保存结果
             switch (result.getStatus()) {
@@ -760,13 +772,14 @@ public class CommitLog {
             this.defaultMessageStore.unlockMappedFile(unlockMappedFile);
         }
 
+        // 消息写入结果
         PutMessageResult putMessageResult = new PutMessageResult(PutMessageStatus.PUT_OK, result);
 
         // Statistics
         storeStatsService.getSinglePutMessageTopicTimesTotal(msg.getTopic()).add(1);
         storeStatsService.getSinglePutMessageTopicSizeTotal(topic).add(result.getWroteBytes());
 
-        // 1. 提交刷盘请求
+        // 1.每次写完一条消息后，就会提交 flush 请求和 replica 请求
         CompletableFuture<PutMessageStatus> flushResultFuture = submitFlushRequest(result, msg);
         // 2. 提交给Slave同步(同步和异步两种)
         CompletableFuture<PutMessageStatus> replicaResultFuture = submitReplicaRequest(result, msg);

@@ -28,11 +28,13 @@ import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
 /**
  * This class defines contracting interfaces to implement, allowing third-party vendor to use customized message store.
+ * 主要提供了如下的一些写入消息、读取消息、读取消息偏移量等相关的接口
  */
 public interface MessageStore {
 
     /**
      * Load previously stored messages.
+     * 加载已存储的数据
      *
      * @return true if success; false otherwise.
      */
@@ -58,6 +60,7 @@ public interface MessageStore {
     /** Store a message into store in async manner, the processor can process the next request
      *  rather than wait for result
      *  when result is completed, notify the client in async manner
+     *  异步将消息写入存储
      *
      * @param msg MessageInstance to store
      * @return a CompletableFuture for the result of store operation
@@ -68,6 +71,7 @@ public interface MessageStore {
 
     /**
      * Store a batch of messages in async manner
+     * 异步批量写入消息
      * @param messageExtBatch the message batch
      * @return a CompletableFuture for the result of store operation
      */
@@ -77,6 +81,7 @@ public interface MessageStore {
 
     /**
      * Store a message into store.
+     * 同步写入消息
      *
      * @param msg Message instance to store
      * @return result of store operation.
@@ -85,6 +90,7 @@ public interface MessageStore {
 
     /**
      * Store a batch of messages.
+     * 同步批量写入消息
      *
      * @param messageExtBatch Message batch.
      * @return result of storing batch messages.
@@ -94,6 +100,7 @@ public interface MessageStore {
     /**
      * Query at most <code>maxMsgNums</code> messages belonging to <code>topic</code> at <code>queueId</code> starting
      * from given <code>offset</code>. Resulting messages will further be screened using provided message filter.
+     * 查询消息
      *
      * @param group Consumer group that launches this query.
      * @param topic Topic to query.
@@ -108,6 +115,7 @@ public interface MessageStore {
 
     /**
      * Get maximum offset of the topic queue.
+     * 获取消息队列最大偏移量
      *
      * @param topic Topic name.
      * @param queueId Queue ID.
@@ -146,6 +154,7 @@ public interface MessageStore {
 
     /**
      * Look up the message by given commit log offset.
+     * 通过偏移量读取一条消息
      *
      * @param commitLogOffset physical offset.
      * @return Message whose physical offset is as specified.

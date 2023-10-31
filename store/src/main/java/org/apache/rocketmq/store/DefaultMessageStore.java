@@ -74,70 +74,69 @@ import org.apache.rocketmq.store.stats.BrokerStatsManager;
 public class DefaultMessageStore implements MessageStore {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    /********************配置对象**********************/
     // 消息存储配置
     private final MessageStoreConfig messageStoreConfig;
-    // CommitLog
-    // CommitLog文件的存储实现类
-    private final CommitLog commitLog;
-
-    // 消息队列存储缓存表，key是topic
-    private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
-
-    private final FlushConsumeQueueService flushConsumeQueueService;
-
-    private final CleanCommitLogService cleanCommitLogService;
-
-    private final CleanConsumeQueueService cleanConsumeQueueService;
-
-    private final IndexService indexService;
-
-    // MappedFile分配服务
-    private final AllocateMappedFileService allocateMappedFileService;
-
-    private final ReputMessageService reputMessageService;
-
-    private final HAService haService;
-
-    private final ScheduleMessageService scheduleMessageService;
-
-    private final StoreStatsService storeStatsService;
-
-    // 直接内存暂存池
-    private final TransientStorePool transientStorePool;
-
-    private final RunningFlags runningFlags = new RunningFlags();
-    private final SystemClock systemClock = new SystemClock();
-
-    private final ScheduledExecutorService scheduledExecutorService =
-        Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread"));
-    // broker状态管理器
-    private final BrokerStatsManager brokerStatsManager;
-    private final MessageArrivingListener messageArrivingListener;
+    //Broker 配置
     private final BrokerConfig brokerConfig;
 
-    private volatile boolean shutdown = true;
-
-    private StoreCheckpoint storeCheckpoint;
-
-    private AtomicLong printTimes = new AtomicLong(0);
-
-    private final AtomicInteger lmqConsumeQueueNum = new AtomicInteger(0);
-
+    /********************消息存储**********************/
+    // CommitLog文件的存储实现类
+    private final CommitLog commitLog;
+    //清理 commitLog 组件
+    private final CleanCommitLogService cleanCommitLogService;
+    //commitLog文件转发器
     private final LinkedList<CommitLogDispatcher> dispatcherList;
+    // MappedFile分配服务
+    private final AllocateMappedFileService allocateMappedFileService;
+    // 临时存储池化组件,直接内存暂存池
+    private final TransientStorePool transientStorePool;
+    //消息存储刷盘检查点
+    private StoreCheckpoint storeCheckpoint;
+    //存储统计组件
+    private final StoreStatsService storeStatsService;
+
+    /********************消费队列**********************/
+    // 消息队列存储缓存表，key是topic
+    private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
+    //消费队列刷磁盘线程
+    private final FlushConsumeQueueService flushConsumeQueueService;
+    //清理 consumeQueue文件组件
+    private final CleanConsumeQueueService cleanConsumeQueueService;
+
+    /********************消息检索**********************/
+    //索引服务
+    private final IndexService indexService;
+
+    /********************其他组件**********************/
+    //消息到达监听器
+    private final MessageArrivingListener messageArrivingListener;
+    //消息重新投递线程
+    private final ReputMessageService reputMessageService;
+    //消息调度组件
+    private final ScheduleMessageService scheduleMessageService;
+    //HA 高可用组件
+    private final HAService haService;
+    // broker状态管理器
+    private final BrokerStatsManager brokerStatsManager;
+    //运行状态标识组件
+    private final RunningFlags runningFlags = new RunningFlags();
+
 
     // 锁文件
     // 目录: ${user.home}/store/lock
     private RandomAccessFile lockFile;
-
     private FileLock lock;
-
     boolean shutDownNormal = false;
+    private volatile boolean shutdown = true;
+    private final ScheduledExecutorService diskCheckScheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("DiskCheckScheduledThread"));
+    private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread"));
+    private final SystemClock systemClock = new SystemClock();
+    private AtomicLong printTimes = new AtomicLong(0);
+    private final AtomicInteger lmqConsumeQueueNum = new AtomicInteger(0);
 
-    private final ScheduledExecutorService diskCheckScheduledExecutorService =
-            Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("DiskCheckScheduledThread"));
 
-    public DefaultMessageStore(final MessageStoreConfig messageStoreConfig, final BrokerStatsManager brokerStatsManager,
-        final MessageArrivingListener messageArrivingListener, final BrokerConfig brokerConfig) throws IOException {
+    public DefaultMessageStore(final MessageStoreConfig messageStoreConfig, final BrokerStatsManager brokerStatsManager, final MessageArrivingListener messageArrivingListener, final BrokerConfig brokerConfig) throws IOException {
         this.messageArrivingListener = messageArrivingListener;
         this.brokerConfig = brokerConfig;
         this.messageStoreConfig = messageStoreConfig;
@@ -149,39 +148,31 @@ public class DefaultMessageStore implements MessageStore {
             this.commitLog = new CommitLog(this);
         }
         this.consumeQueueTable = new ConcurrentHashMap<>(32);
-
         this.flushConsumeQueueService = new FlushConsumeQueueService();
         this.cleanCommitLogService = new CleanCommitLogService();
         this.cleanConsumeQueueService = new CleanConsumeQueueService();
         this.storeStatsService = new StoreStatsService();
         this.indexService = new IndexService(this);
-        if (!messageStoreConfig.isEnableDLegerCommitLog()) {
-            this.haService = new HAService(this);
-        } else {
-            this.haService = null;
-        }
+        this.haService = messageStoreConfig.isEnableDLegerCommitLog() ? null : new HAService(this);
         this.reputMessageService = new ReputMessageService();
-
         this.scheduleMessageService = new ScheduleMessageService(this);
-
         this.transientStorePool = new TransientStorePool(messageStoreConfig);
-
         if (messageStoreConfig.isTransientStorePoolEnable()) {
             this.transientStorePool.init();
         }
-
         this.allocateMappedFileService.start();
-
         this.indexService.start();
-
         this.dispatcherList = new LinkedList<>();
         this.dispatcherList.addLast(new CommitLogDispatcherBuildConsumeQueue());
         this.dispatcherList.addLast(new CommitLogDispatcherBuildIndex());
-
         File file = new File(StorePathConfigHelper.getLockFile(messageStoreConfig.getStorePathRootDir()));
+        // /store
         MappedFile.ensureDirOK(file.getParent());
+        // /store/commitlog
         MappedFile.ensureDirOK(getStorePathPhysic());
+        // /store/consumequeue
         MappedFile.ensureDirOK(getStorePathLogic());
+        // /store/lock
         lockFile = new RandomAccessFile(file, "rw");
     }
 
